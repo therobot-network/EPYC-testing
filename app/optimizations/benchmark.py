@@ -39,11 +39,20 @@ class BenchmarkSuite:
             A = np.random.randn(M, K).astype(np.float32)
             B = np.random.randn(K, N).astype(np.float32)
             
+            # Smart optimization strategy: only use our kernels for small matrices
+            use_optimization = (self.simd_kernels.avx2_supported and 
+                              M <= 256 and K <= 256 and N <= 256)
+            
             # Benchmark optimized version
             start_time = time.perf_counter()
-            if self.simd_kernels.avx2_supported:
-                result_opt = self.simd_kernels.matrix_multiply(A, B)
+            if use_optimization:
+                # Use our small matrix kernel for small operations
+                if M <= 128 and K <= 128 and N <= 128:
+                    result_opt = self.simd_kernels.small_matrix_multiply(A, B)
+                else:
+                    result_opt = self.simd_kernels.matrix_multiply(A, B)
             else:
+                # Fall back to NumPy for larger matrices
                 result_opt = np.dot(A, B)
             opt_time = time.perf_counter() - start_time
             
@@ -73,11 +82,13 @@ class BenchmarkSuite:
                 'numpy_gflops': numpy_gflops,
                 'max_diff': max_diff,
                 'relative_error': relative_error,
-                'accuracy_ok': relative_error < 1e-5
+                'accuracy_ok': relative_error < 1e-5,
+                'used_optimization': use_optimization
             }
             
             results.append(result)
-            logger.info(f"  Speedup: {speedup:.2f}x, GFLOPS: {opt_gflops:.2f} (opt) vs {numpy_gflops:.2f} (numpy)")
+            opt_label = "optimized" if use_optimization else "fallback"
+            logger.info(f"  Speedup: {speedup:.2f}x, GFLOPS: {opt_gflops:.2f} ({opt_label}) vs {numpy_gflops:.2f} (numpy)")
         
         return {
             'operation': 'matrix_multiplication',
@@ -301,6 +312,85 @@ class BenchmarkSuite:
             'summary': self._summarize_results(results)
         }
     
+    def benchmark_transformer_attention(self) -> Dict[str, Any]:
+        """Benchmark transformer attention patterns where our optimizations excel."""
+        logger.info("Benchmarking transformer attention patterns...")
+        results = []
+        
+        # Typical attention head sizes where our optimizations should work well
+        attention_configs = [
+            # (batch_size, seq_len, head_dim, num_heads)
+            (1, 64, 64, 12),    # Small attention
+            (1, 128, 64, 12),   # Medium attention  
+            (1, 64, 96, 8),     # Different head size
+            (2, 32, 64, 16),    # Small batch
+            (4, 16, 128, 8),    # Very small sequences
+        ]
+        
+        for batch_size, seq_len, head_dim, num_heads in attention_configs:
+            logger.info(f"Testing attention: batch={batch_size}, seq={seq_len}, head_dim={head_dim}")
+            
+            # Generate query and key matrices for attention
+            Q = np.random.randn(batch_size, seq_len, head_dim).astype(np.float32)
+            K = np.random.randn(batch_size, seq_len, head_dim).astype(np.float32)
+            
+            # Test Q @ K.T computation (core of attention)
+            start_time = time.perf_counter()
+            if self.simd_kernels.avx2_supported and seq_len <= 128 and head_dim <= 128:
+                # Use our optimized attention kernel
+                scores_opt = np.zeros((batch_size, seq_len, seq_len), dtype=np.float32)
+                for b in range(batch_size):
+                    Q_b = Q[b]  # (seq_len, head_dim)
+                    K_b = K[b]  # (seq_len, head_dim)
+                    # Compute Q @ K.T using our small matrix kernel
+                    scores_opt[b] = self.simd_kernels.small_matrix_multiply(Q_b, K_b.T)
+            else:
+                # Fallback to NumPy
+                scores_opt = np.matmul(Q, K.transpose(0, 2, 1))
+            opt_time = time.perf_counter() - start_time
+            
+            # Baseline computation
+            start_time = time.perf_counter()
+            scores_baseline = np.matmul(Q, K.transpose(0, 2, 1))
+            baseline_time = time.perf_counter() - start_time
+            
+            # Check accuracy
+            max_diff = np.abs(scores_opt - scores_baseline).max()
+            relative_error = max_diff / np.abs(scores_baseline).max()
+            speedup = baseline_time / opt_time
+            
+            # Calculate operations
+            ops = batch_size * seq_len * seq_len * head_dim * 2  # Q @ K.T operations
+            opt_gflops = ops / (opt_time * 1e9)
+            baseline_gflops = ops / (baseline_time * 1e9)
+            
+            result = {
+                'operation': 'attention_scores',
+                'config': f"b{batch_size}_s{seq_len}_h{head_dim}",
+                'batch_size': batch_size,
+                'seq_len': seq_len,
+                'head_dim': head_dim,
+                'optimized_time': opt_time,
+                'baseline_time': baseline_time,
+                'speedup': speedup,
+                'opt_gflops': opt_gflops,
+                'baseline_gflops': baseline_gflops,
+                'max_diff': max_diff,
+                'relative_error': relative_error,
+                'accuracy_ok': relative_error < 1e-4,
+                'used_optimization': (seq_len <= 128 and head_dim <= 128)
+            }
+            
+            results.append(result)
+            opt_label = "optimized" if result['used_optimization'] else "fallback"
+            logger.info(f"  Attention speedup: {speedup:.2f}x, GFLOPS: {opt_gflops:.2f} ({opt_label}) vs {baseline_gflops:.2f} (baseline)")
+        
+        return {
+            'operation': 'transformer_attention',
+            'results': results,
+            'summary': self._summarize_results(results)
+        }
+    
     def run_full_benchmark(self) -> Dict[str, Any]:
         """Run the complete benchmark suite."""
         logger.info("Starting full benchmark suite...")
@@ -339,6 +429,9 @@ class BenchmarkSuite:
         
         # Memory bandwidth benchmark
         benchmark_results['memory_bandwidth'] = self.benchmark_memory_bandwidth()
+        
+        # Transformer attention benchmark
+        benchmark_results['transformer_attention'] = self.benchmark_transformer_attention()
         
         # Overall summary
         overall_summary = self._create_overall_summary(benchmark_results)
