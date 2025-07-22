@@ -137,17 +137,28 @@ class Llama33Model(BaseModel):
         try:
             logger.info("🔄 Loading LLaMA 3.3 70B model...")
             
-            # Load tokenizer
+            # Load tokenizer (async)
+            logger.info("Loading tokenizer...")
             await self._load_tokenizer()
             
-            # Load model
+            # Load model configuration (async)
+            logger.info("Loading model configuration...")
+            await self._load_model_config()
+            
+            # Load model weights (async with progress)
+            logger.info("Loading model weights... This may take several minutes.")
             if self.is_quantized:
                 await self._load_quantized_model()
             else:
                 await self._load_standard_model()
             
             # Setup generation config
+            logger.info("Setting up generation configuration...")
             self._setup_generation_config()
+            
+            # Apply optimizations
+            logger.info("Applying hardware optimizations...")
+            await self._apply_optimizations()
             
             logger.info("✅ Model loaded successfully")
             
@@ -160,47 +171,54 @@ class Llama33Model(BaseModel):
     
     async def _load_standard_model(self):
         """Load standard (non-quantized) model."""
-        from transformers import AutoModelForCausalLM
+        # Run the heavy model loading in a thread to prevent blocking
+        def _load_model_sync():
+            return self._load_model_optimized()
         
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-            device_map="auto" if self.device == "cuda" else None,
-            trust_remote_code=True,
-            low_cpu_mem_usage=True
-        )
+        # Use asyncio to run the synchronous model loading in a thread
+        loop = asyncio.get_event_loop()
+        self.model = await loop.run_in_executor(None, _load_model_sync)
         
-        if self.device == "cpu":
+        if self.device == "cpu" and self.model.device.type != "cpu":
+            logger.info("Moving model to CPU...")
             self.model = self.model.to(self.device)
     
     async def _load_quantized_model(self):
         """Load model with quantization."""
-        from transformers import AutoModelForCausalLM
-        from ..optimizations.quantization import estimate_model_size, print_quantization_summary
+        def _load_quantized_sync():
+            from transformers import AutoModelForCausalLM
+            from ..optimizations.quantization import estimate_model_size, print_quantization_summary
+            
+            logger.info("Loading model for quantization...")
+            
+            # Load original model
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                torch_dtype=torch.float32,  # Load in FP32 for quantization
+                device_map=None,  # Load on CPU first
+                trust_remote_code=True,
+                low_cpu_mem_usage=True
+            )
+            
+            # Estimate original model size
+            original_size = estimate_model_size(model)
+            
+            # Apply quantization
+            logger.info("Applying quantization...")
+            model = self.quantizer.quantize_model(model)
+            
+            # Print quantization summary
+            print_quantization_summary(original_size, self.quantizer.config.bits)
+            
+            return model
         
-        logger.info("Loading model for quantization...")
-        
-        # Load original model
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            torch_dtype=torch.float32,  # Load in FP32 for quantization
-            device_map=None,  # Load on CPU first
-            trust_remote_code=True,
-            low_cpu_mem_usage=True
-        )
-        
-        # Estimate original model size
-        original_size = estimate_model_size(self.model)
-        
-        # Apply quantization
-        logger.info("Applying quantization...")
-        self.model = self.quantizer.quantize_model(self.model)
-        
-        # Print quantization summary
-        print_quantization_summary(original_size, self.quantizer.config.bits)
+        # Run in executor to prevent blocking
+        loop = asyncio.get_event_loop()
+        self.model = await loop.run_in_executor(None, _load_quantized_sync)
         
         # Move to target device
         if self.device != "cpu":
+            logger.info(f"Moving quantized model to {self.device}...")
             self.model = self.model.to(self.device)
     
     def _print_model_info(self):
@@ -387,27 +405,71 @@ class Llama33Model(BaseModel):
     
     async def _load_tokenizer(self):
         """Load tokenizer with proper configuration."""
-        # Check if path exists locally
-        if Path(self.model_path).exists():
-            tokenizer = AutoTokenizer.from_pretrained(
-                self.model_path,
-                use_fast=True,
-                trust_remote_code=False,
-                local_files_only=True
-            )
-        else:
-            # Fallback to HuggingFace repo
-            tokenizer = AutoTokenizer.from_pretrained(
-                self.model_path,
-                use_fast=True,
-                trust_remote_code=False
-            )
+        def _load_tokenizer_sync():
+            # Check if path exists locally
+            if Path(self.model_path).exists():
+                tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_path,
+                    use_fast=True,
+                    trust_remote_code=False,
+                    local_files_only=True
+                )
+            else:
+                # Fallback to HuggingFace repo
+                tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_path,
+                    use_fast=True,
+                    trust_remote_code=False
+                )
+            
+            # Ensure proper special tokens
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            
+            return tokenizer
         
-        # Ensure proper special tokens
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
+        # Run in executor to prevent blocking
+        loop = asyncio.get_event_loop()
+        self.tokenizer = await loop.run_in_executor(None, _load_tokenizer_sync)
+    
+    async def _load_model_config(self):
+        """Load model configuration."""
+        def _load_config_sync():
+            # Check if path exists locally
+            if Path(self.model_path).exists():
+                config = AutoConfig.from_pretrained(
+                    self.model_path,
+                    trust_remote_code=False,
+                    local_files_only=True
+                )
+            else:
+                # Fallback to HuggingFace repo
+                config = AutoConfig.from_pretrained(
+                    self.model_path,
+                    trust_remote_code=False
+                )
+            return config
         
-        self.tokenizer = tokenizer
+        # Run in executor to prevent blocking
+        loop = asyncio.get_event_loop()
+        self.config = await loop.run_in_executor(None, _load_config_sync)
+    
+    async def _apply_optimizations(self):
+        """Apply hardware and assembly optimizations."""
+        def _apply_optimizations_sync():
+            # Apply optimization hooks
+            self._apply_optimization_hooks()
+            
+            # Apply AMD EPYC optimizations if on CPU
+            if not torch.cuda.is_available():
+                from app.config.settings import get_settings
+                settings = get_settings()
+                ec2_config = settings._ec2_config.get('performance', {})
+                self._apply_amd_epyc_optimizations(ec2_config)
+        
+        # Run in executor to prevent blocking
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _apply_optimizations_sync)
     
     def _load_model_optimized(self):
         """Load model with hardware optimizations."""

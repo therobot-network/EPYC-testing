@@ -156,12 +156,50 @@ class LoadingScreen(Container):
     
     def start_loading_animation(self) -> None:
         """Start the loading animation."""
-        self.set_timer(0.1, self._animate_loading)
+        self.animation_step = 0
+        self.set_timer(0.5, self._animate_loading)
     
     def _animate_loading(self) -> None:
         """Animate loading indicators."""
-        # This would be called periodically to update animations
-        pass
+        if not hasattr(self, 'animation_step'):
+            self.animation_step = 0
+        
+        # Create animated spinner
+        spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        spinner = spinner_chars[self.animation_step % len(spinner_chars)]
+        
+        # Update progress display with spinner
+        elapsed = time.time() - self.start_time
+        
+        progress_text = Text()
+        progress_text.append(f"{spinner} Stage: {self.loading_stage}\n", style="bold yellow")
+        progress_text.append(f"Progress: {self.loading_progress:.1f}%\n", style="cyan")
+        progress_text.append(f"Elapsed: {elapsed:.1f}s\n", style="dim white")
+        progress_text.append("Press ESC to cancel loading\n", style="dim red")
+        
+        # Create progress bar
+        bar_width = 40
+        filled = int(self.loading_progress / 100 * bar_width)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        progress_text.append(f"\n[{bar}] {self.loading_progress:.1f}%", style="bright_green")
+        
+        progress_panel = Panel.fit(
+            progress_text,
+            title="Loading Progress",
+            border_style="green",
+            padding=(1, 1)
+        )
+        
+        try:
+            progress_widget = self.query_one("#loading-progress", Static)
+            progress_widget.update(progress_panel)
+        except Exception:
+            pass  # Widget might not exist yet
+        
+        self.animation_step += 1
+        
+        # Continue animation
+        self.set_timer(0.5, self._animate_loading)
 
 
 class ChatMessage(Container):
@@ -405,6 +443,7 @@ class EPYCTestingTUI(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
         Binding("ctrl+r", "reload_model", "Reload Model"),
+        Binding("escape", "cancel_loading", "Cancel Loading"),
     ]
     
     def __init__(
@@ -423,6 +462,8 @@ class EPYCTestingTUI(App):
         self.model_manager = ModelManager()
         self.model_loaded = False
         self.current_screen = "loading"
+        self.loading_task = None
+        self.loading_cancelled = False
         
     def compose(self) -> ComposeResult:
         """Compose the main application."""
@@ -443,46 +484,49 @@ class EPYCTestingTUI(App):
         self.sub_title = f"LLaMA 3.3 70B - {self.model_name}"
         
         if self.auto_load:
-            self.load_model()
+            self.loading_task = self.load_model()
     
     @work(exclusive=True)
     async def load_model(self) -> None:
-        """Load the model with progress updates."""
+        """Load the model with progress updates and timeout handling."""
         loading_screen = self.query_one("#loading-screen", LoadingScreen)
         
         try:
             # Stage 1: Initialize model manager
-            loading_screen.update_progress(10.0, "Initializing Model Manager")
+            loading_screen.update_progress(5.0, "Initializing Model Manager")
             loading_screen.add_log("Initializing model manager...", "info")
-            await asyncio.sleep(0.5)  # Simulate work
+            await asyncio.sleep(0.1)
             
             # Stage 2: Load tokenizer
-            loading_screen.update_progress(25.0, "Loading Tokenizer")
+            loading_screen.update_progress(15.0, "Loading Tokenizer")
             loading_screen.add_log("Loading tokenizer from model path...", "info")
-            await asyncio.sleep(1.0)
             
             # Stage 3: Load model configuration
-            loading_screen.update_progress(40.0, "Loading Model Configuration")
+            loading_screen.update_progress(25.0, "Loading Model Configuration")
             loading_screen.add_log("Reading model configuration...", "info")
-            await asyncio.sleep(0.5)
             
-            # Stage 4: Load model weights
-            loading_screen.update_progress(60.0, "Loading Model Weights", "This may take several minutes...")
+            # Stage 4: Load model weights (this is the heavy operation)
+            loading_screen.update_progress(35.0, "Loading Model Weights", "This may take several minutes...")
             loading_screen.add_log("Loading 70B parameters... This will take time.", "warning")
             
-            # Actually load the model
-            await self.model_manager.load_model(
-                model_name=self.model_name,
-                model_path=self.model_path,
-                model_type="llama33"
+            # Create a task for model loading with timeout
+            model_loading_task = asyncio.create_task(
+                self._load_model_with_progress(loading_screen)
             )
             
-            # Stage 5: Optimizing for hardware
-            loading_screen.update_progress(85.0, "Optimizing for Hardware")
-            loading_screen.add_log("Applying hardware optimizations...", "info")
-            await asyncio.sleep(1.0)
+            # Wait for model loading with timeout (30 minutes)
+            try:
+                await asyncio.wait_for(model_loading_task, timeout=1800.0)  # 30 minutes
+            except asyncio.TimeoutError:
+                loading_screen.add_log("Model loading timed out after 30 minutes", "error")
+                loading_screen.add_log("This may indicate insufficient memory or slow disk I/O", "warning")
+                loading_screen.add_log("Try using quantization to reduce memory usage", "info")
+                return
+            except asyncio.CancelledError:
+                loading_screen.add_log("Model loading was cancelled", "warning")
+                return
             
-            # Stage 6: Final setup
+            # Stage 5: Final setup
             loading_screen.update_progress(100.0, "Ready!")
             loading_screen.add_log("Model loaded successfully!", "success")
             await asyncio.sleep(1.0)
@@ -493,7 +537,49 @@ class EPYCTestingTUI(App):
         except Exception as e:
             loading_screen.add_log(f"Error loading model: {str(e)}", "error")
             if self.debug_mode:
-                loading_screen.add_log(f"Debug info: {repr(e)}", "error")
+                import traceback
+                loading_screen.add_log(f"Debug traceback: {traceback.format_exc()}", "error")
+    
+    async def _load_model_with_progress(self, loading_screen) -> None:
+        """Load model with detailed progress tracking."""
+        try:
+            # Check if cancelled before starting
+            if self.loading_cancelled:
+                raise asyncio.CancelledError("Loading cancelled")
+            
+            # Create progress update callback
+            def progress_callback(stage: str, progress: float):
+                # Map internal progress to UI progress (35% to 95%)
+                ui_progress = 35.0 + (progress * 0.6)  # Scale to 35-95%
+                loading_screen.update_progress(ui_progress, stage)
+                loading_screen.add_log(f"{stage}: {progress:.1f}%", "info")
+            
+            # Actually load the model
+            loading_screen.update_progress(40.0, "Loading Model Weights")
+            await self.model_manager.load_model(
+                model_name=self.model_name,
+                model_path=self.model_path,
+                model_type="llama33"
+            )
+            
+            # Check if cancelled after loading
+            if self.loading_cancelled:
+                raise asyncio.CancelledError("Loading cancelled")
+            
+            # Final optimization stage
+            loading_screen.update_progress(95.0, "Optimizing for Hardware")
+            loading_screen.add_log("Applying hardware optimizations...", "info")
+            await asyncio.sleep(0.5)
+            
+        except asyncio.CancelledError:
+            loading_screen.add_log("Model loading was cancelled", "warning")
+            raise
+        except Exception as e:
+            loading_screen.add_log(f"Model loading failed: {str(e)}", "error")
+            if "out of memory" in str(e).lower():
+                loading_screen.add_log("Try using quantization to reduce memory usage", "info")
+                loading_screen.add_log("Or use a smaller model variant", "info")
+            raise
     
     def switch_to_chat(self) -> None:
         """Switch from loading screen to chat interface."""
@@ -522,9 +608,21 @@ class EPYCTestingTUI(App):
     
     def action_reload_model(self) -> None:
         """Reload the model."""
-        if self.model_loaded:
-            self.load_model()
+        if self.model_loaded or self.current_screen == "loading":
+            if self.loading_task:
+                self.loading_task.cancel()
+            self.loading_task = self.load_model()
+    
+    def action_cancel_loading(self) -> None:
+        """Cancel model loading."""
+        if self.current_screen == "loading" and self.loading_task:
+            self.loading_cancelled = True
+            self.loading_task.cancel()
+            loading_screen = self.query_one("#loading-screen", LoadingScreen)
+            loading_screen.add_log("Loading cancelled by user", "warning")
     
     def action_quit(self) -> None:
         """Quit the application."""
+        if self.loading_task:
+            self.loading_task.cancel()
         self.exit() 
