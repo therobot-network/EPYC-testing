@@ -51,6 +51,30 @@ Use these scripts for EC2 management and deployment:
 ./scripts/terraform-setup.sh
 ```
 
+## 🦙 TUI (Terminal User Interface)
+
+**NEW**: Beautiful terminal interface for chatting with LLaMA 3.3!
+
+```bash
+# Launch the TUI with auto-loading
+./cli.py --auto-load
+
+# Launch with specific model path
+./cli.py -m ./models/llama-3.3-70b-instruct
+
+# Debug mode for troubleshooting
+./cli.py --debug
+```
+
+### TUI Features
+- 🎨 **Beautiful Interface**: Rich terminal UI with colors, panels, and animations
+- ⚡ **Real-time Progress**: Token-by-token generation progress with live updates
+- 📊 **Performance Metrics**: Tokens/second, elapsed time, generation statistics
+- 🔧 **System Integration**: EC2 optimization detection and hardware monitoring
+- ⌨️ **Keyboard Shortcuts**: `Ctrl+C` (quit), `Ctrl+L` (clear), `Ctrl+R` (reload)
+
+See the [TUI Guide](docs/TUI_GUIDE.md) for detailed documentation.
+
 ## 📁 Repository Structure
 
 ```
@@ -140,7 +164,10 @@ Use these scripts for EC2 management and deployment:
 # Activate virtual environment
 source venv/bin/activate
 
-# Run locally (after model installation)
+# Run the TUI (recommended for interactive use)
+./cli.py --auto-load
+
+# Run the web API server
 python app/main.py
 
 # Run with specific host/port

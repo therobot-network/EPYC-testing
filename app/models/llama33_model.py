@@ -159,17 +159,43 @@ class Llama33Model(BaseModel):
     
     def _load_model_optimized(self):
         """Load model with hardware optimizations."""
+        from app.config.settings import get_settings
+        
+        settings = get_settings()
         hw_config = self.llama33_config.get("hardware_optimization", {})
         
-        # Setup torch dtype
-        torch_dtype = getattr(torch, hw_config.get("torch_dtype", "bfloat16"))
+        # Get EC2 performance config for CPU optimization
+        ec2_config = settings._ec2_config.get('performance', {})
         
-        # Setup device map for multi-GPU
-        device_map = hw_config.get("device_map", "auto")
+        # Setup torch dtype - prioritize EC2 config for CPU optimization
+        dtype_name = ec2_config.get("torch_dtype", hw_config.get("torch_dtype", "float32"))
         
-        # Setup attention implementation
+        # Handle half-precision optimization for AMD EPYC
+        if not torch.cuda.is_available():
+            if dtype_name == "float16":
+                # float16 is supported on AMD EPYC for CPU inference
+                logger.info("Using float16 (half-precision) for AMD EPYC CPU inference")
+            elif dtype_name == "bfloat16":
+                # bfloat16 may not work well on CPU, fallback to float16 for half-precision
+                dtype_name = "float16"
+                logger.info("Converting bfloat16 to float16 for AMD EPYC CPU inference")
+            elif ec2_config.get("use_half_precision", False):
+                # Force half-precision if explicitly enabled
+                dtype_name = "float16"
+                logger.info("Forcing float16 (half-precision) as requested in EC2 config")
+        
+        torch_dtype = getattr(torch, dtype_name)
+        
+        # Setup device map - force CPU for c6a instances
+        if not torch.cuda.is_available():
+            device_map = "cpu"
+            logger.info("Using CPU device map (no CUDA available)")
+        else:
+            device_map = hw_config.get("device_map", "auto")
+        
+        # Setup attention implementation (GPU only)
         attn_implementation = None
-        if hw_config.get("use_flash_attention", True):
+        if torch.cuda.is_available() and hw_config.get("use_flash_attention", True):
             try:
                 import flash_attn
                 attn_implementation = "flash_attention_2"
@@ -177,19 +203,41 @@ class Llama33Model(BaseModel):
             except ImportError:
                 logger.warning("Flash Attention not available, using default attention")
         
-        # Setup quantization if needed
+        # Setup quantization - prioritize EC2 config for half-precision optimization
         quantization_config = None
-        if hw_config.get("load_in_8bit", False):
-            quantization_config = BitsAndBytesConfig(load_in_8bit=True)
-            logger.info("Using 8-bit quantization")
-        elif hw_config.get("load_in_4bit", False):
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch_dtype,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4"
-            )
-            logger.info("Using 4-bit quantization")
+        use_8bit = ec2_config.get("load_in_8bit", hw_config.get("load_in_8bit", False))
+        use_4bit = ec2_config.get("load_in_4bit", hw_config.get("load_in_4bit", False))
+        use_half_precision = ec2_config.get("use_half_precision", False)
+        
+        # For CPU inference with half-precision optimization
+        if not torch.cuda.is_available():
+            if use_half_precision:
+                # Skip quantization for half-precision optimization
+                logger.info("Using half-precision (FP16) optimization - skipping quantization")
+                quantization_config = None
+            elif use_8bit:
+                logger.warning("8-bit quantization not optimal for CPU, using half-precision instead")
+                quantization_config = None
+            elif use_4bit:
+                logger.warning("4-bit quantization disabled for half-precision optimization")
+                quantization_config = None
+        else:
+            # GPU quantization settings (if CUDA available)
+            if use_8bit:
+                quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+                logger.info("Using 8-bit quantization")
+            elif use_4bit:
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch_dtype,
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_quant_type="nf4"
+                )
+                logger.info("Using 4-bit quantization")
+        
+        # Apply AMD EPYC specific optimizations before model loading
+        if not torch.cuda.is_available():
+            self._apply_amd_epyc_optimizations(ec2_config)
         
         # Load model with proper path handling
         if Path(self.model_path).exists():
@@ -218,6 +266,50 @@ class Llama33Model(BaseModel):
         
         return model
     
+    def _apply_amd_epyc_optimizations(self, ec2_config: Dict[str, Any]):
+        """Apply AMD EPYC specific optimizations for CPU inference."""
+        import os
+        
+        # Set threading optimizations
+        torch_threads = ec2_config.get("torch_threads", 96)
+        mkl_threads = ec2_config.get("mkl_threads", 96)
+        omp_threads = ec2_config.get("omp_num_threads", 96)
+        
+        # Apply PyTorch threading
+        torch.set_num_threads(torch_threads)
+        logger.info(f"Set PyTorch threads to {torch_threads}")
+        
+        # Apply MKL optimizations if available
+        if ec2_config.get("use_mkl", True):
+            try:
+                import mkl
+                mkl.set_num_threads(mkl_threads)
+                logger.info(f"Set MKL threads to {mkl_threads}")
+            except ImportError:
+                logger.warning("MKL not available, using default threading")
+        
+        # Set OpenMP threads
+        os.environ["OMP_NUM_THREADS"] = str(omp_threads)
+        logger.info(f"Set OMP_NUM_THREADS to {omp_threads}")
+        
+        # Enable AMD EPYC specific optimizations
+        if ec2_config.get("use_avx2", True):
+            os.environ["TORCH_USE_AVX2"] = "1"
+            logger.info("Enabled AVX2 SIMD instructions")
+        
+        if ec2_config.get("use_avx512", True):
+            os.environ["TORCH_USE_AVX512"] = "1"
+            logger.info("Enabled AVX-512 SIMD instructions")
+        
+        # Enable vectorization optimizations
+        if ec2_config.get("vectorization", True):
+            os.environ["TORCH_ENABLE_VECTORIZATION"] = "1"
+            logger.info("Enabled vectorization optimizations")
+        
+        # Memory allocation optimizations for large models
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+        logger.info("Applied memory allocation optimizations")
+    
     def _setup_generation_config(self):
         """Setup generation configuration."""
         gen_config = self.llama33_config.get("generation_config", {})
@@ -241,14 +333,37 @@ class Llama33Model(BaseModel):
                 props = torch.cuda.get_device_properties(i)
                 memory_gb = props.total_memory / (1024**3)
                 logger.info(f"GPU {i}: {props.name} ({memory_gb:.1f}GB)")
+        else:
+            # Log CPU information for AMD EPYC
+            import psutil
+            cpu_info = psutil.cpu_count(logical=True)
+            memory_gb = psutil.virtual_memory().total / (1024**3)
+            logger.info(f"CPU cores: {cpu_info} vCPUs")
+            logger.info(f"System memory: {memory_gb:.1f}GB")
+            logger.info("Running on AMD EPYC c6a.24xlarge with FP16 optimization")
         
-        # Log model parameters
+        # Log model parameters and precision
         if hasattr(self.model, 'num_parameters'):
             num_params = self.model.num_parameters() / 1e9
             logger.info(f"Model parameters: {num_params:.1f}B")
         
+        # Log precision information
+        if hasattr(self.model, 'dtype'):
+            logger.info(f"Model precision: {self.model.dtype}")
+        
         logger.info(f"Context length: {self.config.max_position_embeddings}")
         logger.info(f"Vocabulary size: {self.config.vocab_size}")
+        
+        # Log optimization status
+        from app.config.settings import get_settings
+        settings = get_settings()
+        ec2_config = settings._ec2_config.get('performance', {})
+        if ec2_config.get("use_half_precision", False):
+            logger.info("Half-precision (FP16) optimization: ENABLED")
+        if ec2_config.get("use_mkl", False):
+            logger.info("Intel MKL optimization: ENABLED")
+        if ec2_config.get("vectorization", False):
+            logger.info("SIMD vectorization: ENABLED")
     
     def _format_chat_messages(self, messages: List[Dict[str, str]]) -> str:
         """Format messages using Llama 3.3 chat template."""
@@ -424,6 +539,10 @@ class Llama33Model(BaseModel):
         info = super().get_model_info()
         
         if self.llama33_config:
+            from app.config.settings import get_settings
+            settings = get_settings()
+            ec2_config = settings._ec2_config.get('performance', {})
+            
             info.update({
                 "model_name": self.llama33_config.get("model_name", "llama-3.3-70b-instruct"),
                 "model_type": "llama33",
@@ -431,7 +550,14 @@ class Llama33Model(BaseModel):
                 "supported_languages": self.get_supported_languages(),
                 "chat_template_available": True,
                 "flash_attention_enabled": self.llama33_config.get("hardware_optimization", {}).get("use_flash_attention", False),
-                "multi_gpu_optimized": True
+                "multi_gpu_optimized": True,
+                "half_precision_enabled": ec2_config.get("use_half_precision", False),
+                "precision_type": ec2_config.get("torch_dtype", "float32"),
+                "amd_epyc_optimized": not torch.cuda.is_available(),
+                "mkl_enabled": ec2_config.get("use_mkl", False),
+                "vectorization_enabled": ec2_config.get("vectorization", False),
+                "avx2_enabled": ec2_config.get("use_avx2", False),
+                "avx512_enabled": ec2_config.get("use_avx512", False)
             })
         
         return info 

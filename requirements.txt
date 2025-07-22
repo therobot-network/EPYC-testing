@@ -26,9 +26,21 @@ pyyaml>=6.0.1
 loguru>=0.7.0
 prometheus-client>=0.17.0
 
+# System information
+psutil>=5.9.0
+py-cpuinfo>=9.0.0
+
 # AWS SDK
 boto3>=1.28.0
 botocore>=1.31.0
+
+# TUI and CLI libraries
+rich>=13.7.0
+textual>=0.45.0
+click>=8.1.0
+
+# Assembly optimization dependencies
+ctypes-sh>=0.1.0
 
 # Testing
 pytest>=7.4.0

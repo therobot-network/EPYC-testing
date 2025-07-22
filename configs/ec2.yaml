@@ -28,7 +28,36 @@ performance:
   max_memory_gb: 192  # c6a.24xlarge has 192GB RAM
   cpu_cores: 96       # c6a.24xlarge has 96 vCPUs
   torch_threads: 96   # Match CPU cores
-  batch_size: 64      # Adjust based on model size and large memory
+  batch_size: 32      # Reduced for FP16 to manage memory efficiently
+  
+  # CPU Optimization Settings for Half-Precision
+  cpu_inference: true
+  load_in_8bit: false  # Disabled for FP16 optimization
+  load_in_4bit: false  # Disabled for FP16 optimization - using half precision instead
+  torch_dtype: "float16"  # Half precision for optimal performance on AMD EPYC
+  low_cpu_mem_usage: true
+  use_half_precision: true  # Enable half-precision optimization
+  
+  # AMD EPYC specific optimizations
+  use_mkl: true  # Enable Intel MKL for optimized BLAS operations
+  mkl_threads: 96  # Match CPU cores for MKL threading
+  omp_num_threads: 96  # OpenMP threading optimization
+  
+  # Memory management for FP16
+  gradient_checkpointing: true  # Save memory during inference
+  max_memory_per_gpu: null  # CPU-only inference
+  device_map: "cpu"  # Force CPU device mapping
+  
+  # Generation Settings optimized for CPU FP16
+  max_new_tokens: 512   # Increased from 256 for better responses
+  temperature: 0.7
+  top_p: 0.9
+  do_sample: true
+  
+  # AMD EPYC specific SIMD optimizations
+  use_avx2: true  # Enable AVX2 SIMD instructions
+  use_avx512: true  # Enable AVX-512 if available on AMD EPYC
+  vectorization: true  # Enable vectorized operations
   
 # Storage Paths on EC2
 storage:
