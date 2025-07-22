@@ -1,0 +1,35 @@
+# Model Deployment Service Configuration
+
+# Server settings
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  log_level: "INFO"
+
+# CORS settings
+cors:
+  allowed_origins:
+    - "*"
+
+# Model settings
+models:
+  path: "./models"
+  default_model_path: null
+  max_models_in_memory: 3
+
+# AWS settings
+aws:
+  region: "us-east-1"
+  access_key_id: null
+  secret_access_key: null
+  s3_bucket: null
+
+# Performance settings
+performance:
+  max_batch_size: 32
+  inference_timeout: 30
+
+# Security settings
+security:
+  api_key: null 
