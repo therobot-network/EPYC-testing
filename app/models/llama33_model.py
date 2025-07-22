@@ -202,7 +202,6 @@ class Llama33Model(BaseModel):
                 attn_implementation=attn_implementation,
                 trust_remote_code=False,
                 low_cpu_mem_usage=True,
-                use_cache=True,
                 local_files_only=True
             )
         else:
@@ -214,8 +213,7 @@ class Llama33Model(BaseModel):
                 quantization_config=quantization_config,
                 attn_implementation=attn_implementation,
                 trust_remote_code=False,
-                low_cpu_mem_usage=True,
-                use_cache=True
+                low_cpu_mem_usage=True
             )
         
         return model
@@ -233,8 +231,7 @@ class Llama33Model(BaseModel):
             max_new_tokens=gen_config.get("max_new_tokens", 4096),
             pad_token_id=gen_config.get("pad_token_id", 128001),
             eos_token_id=gen_config.get("eos_token_id", [128001, 128009]),
-            bos_token_id=gen_config.get("bos_token_id", 128000),
-            use_cache=True
+            bos_token_id=gen_config.get("bos_token_id", 128000)
         )
     
     def _log_model_info(self):
