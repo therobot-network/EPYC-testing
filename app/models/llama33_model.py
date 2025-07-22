@@ -25,13 +25,45 @@ from app.optimizations.matrix_ops import get_matrix_ops
 class Llama33Model(BaseModel):
     """Llama 3.3 70B Instruct model implementation with optimized configuration."""
     
-    def __init__(self, model_path: str):
-        super().__init__(model_path)
+    def __init__(self, model_path: str = None, device: str = "cpu", quantization_config: Optional[Dict] = None):
+        """
+        Initialize LLaMA 3.3 70B model.
+        
+        Args:
+            model_path: Path to model files
+            device: Device to run on ("cpu" or "cuda")
+            quantization_config: Configuration for quantization
+        """
+        self.model_path = model_path
+        self.device = device
+        self.quantization_config = quantization_config
+        self.model = None
         self.tokenizer = None
         self.config = None
-        self.generation_config = None
-        self.llama33_config = None
-        self.chat_template = None
+        self.is_quantized = quantization_config is not None
+        self.quantizer = None
+        
+        # Performance tracking
+        self.performance_stats = {
+            'inference_times': [],
+            'memory_usage': [],
+            'tokens_per_second': []
+        }
+        
+        logger.info(f"Initializing LLaMA 3.3 70B model on {device}")
+        if self.is_quantized:
+            logger.info(f"Quantization enabled: {quantization_config}")
+        
+        # Initialize quantizer if needed
+        if self.is_quantized:
+            from ..optimizations.quantization import LLaMAQuantizer, create_quantization_config
+            
+            if isinstance(quantization_config, dict):
+                quant_config = create_quantization_config(**quantization_config)
+            else:
+                quant_config = quantization_config
+            
+            self.quantizer = LLaMAQuantizer(quant_config)
         
         # Initialize assembly optimizations
         self.matrix_ops = get_matrix_ops()
@@ -90,56 +122,266 @@ class Llama33Model(BaseModel):
             }
         }
     
-    async def load(self) -> None:
-        """Load Llama 3.3 model with optimized configuration."""
+    async def load(self, use_quantization: bool = None):
+        """
+        Load the model and tokenizer with optional quantization.
+        
+        Args:
+            use_quantization: Override quantization setting
+        """
+        if use_quantization is not None:
+            self.is_quantized = use_quantization
+        
         try:
-            logger.info(f"Loading Llama 3.3 70B model from {self.model_path}")
+            logger.info("🔄 Loading LLaMA 3.3 70B model...")
             
-            loop = asyncio.get_event_loop()
+            # Load tokenizer
+            await self._load_tokenizer()
             
-            # Load tokenizer first
-            logger.info("Loading tokenizer...")
-            self.tokenizer = await loop.run_in_executor(
-                None,
-                self._load_tokenizer
-            )
-            
-            # Load model configuration
-            logger.info("Loading model configuration...")
-            # Load config with proper path handling
-            if Path(self.model_path).exists():
-                self.config = await loop.run_in_executor(
-                    None,
-                    lambda: AutoConfig.from_pretrained(self.model_path, local_files_only=True)
-                )
+            # Load model
+            if self.is_quantized:
+                await self._load_quantized_model()
             else:
-                self.config = await loop.run_in_executor(
-                    None,
-                    lambda: AutoConfig.from_pretrained(self.model_path)
-                )
+                await self._load_standard_model()
             
-            # Setup generation configuration
+            # Setup generation config
             self._setup_generation_config()
             
-            # Load model with optimizations
-            logger.info("Loading model with optimizations... This may take several minutes...")
-            self.model = await loop.run_in_executor(
-                None,
-                self._load_model_optimized
-            )
+            logger.info("✅ Model loaded successfully")
             
-            # Set model to evaluation mode
-            self.model.eval()
-            
-            self.is_loaded = True
-            logger.info("Llama 3.3 70B model loaded successfully")
-            
-            # Log model info
-            self._log_model_info()
+            # Print model info
+            self._print_model_info()
             
         except Exception as e:
-            logger.error(f"Failed to load Llama 3.3 model: {str(e)}")
+            logger.error(f"❌ Failed to load model: {e}")
             raise
+    
+    async def _load_standard_model(self):
+        """Load standard (non-quantized) model."""
+        from transformers import AutoModelForCausalLM
+        
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_path,
+            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+            device_map="auto" if self.device == "cuda" else None,
+            trust_remote_code=True,
+            low_cpu_mem_usage=True
+        )
+        
+        if self.device == "cpu":
+            self.model = self.model.to(self.device)
+    
+    async def _load_quantized_model(self):
+        """Load model with quantization."""
+        from transformers import AutoModelForCausalLM
+        from ..optimizations.quantization import estimate_model_size, print_quantization_summary
+        
+        logger.info("Loading model for quantization...")
+        
+        # Load original model
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_path,
+            torch_dtype=torch.float32,  # Load in FP32 for quantization
+            device_map=None,  # Load on CPU first
+            trust_remote_code=True,
+            low_cpu_mem_usage=True
+        )
+        
+        # Estimate original model size
+        original_size = estimate_model_size(self.model)
+        
+        # Apply quantization
+        logger.info("Applying quantization...")
+        self.model = self.quantizer.quantize_model(self.model)
+        
+        # Print quantization summary
+        print_quantization_summary(original_size, self.quantizer.config.bits)
+        
+        # Move to target device
+        if self.device != "cpu":
+            self.model = self.model.to(self.device)
+    
+    def _print_model_info(self):
+        """Print model information."""
+        if self.model is None:
+            return
+        
+        # Count parameters
+        total_params = sum(p.numel() for p in self.model.parameters())
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        
+        logger.info("📊 Model Information")
+        logger.info("=" * 40)
+        logger.info(f"Model: LLaMA 3.3 70B Instruct")
+        logger.info(f"Device: {self.device}")
+        logger.info(f"Quantized: {self.is_quantized}")
+        if self.is_quantized:
+            logger.info(f"Quantization: {self.quantizer.config.bits}-bit")
+        logger.info(f"Total parameters: {total_params:,}")
+        logger.info(f"Trainable parameters: {trainable_params:,}")
+        
+        # Memory usage
+        if torch.cuda.is_available() and self.device == "cuda":
+            memory_allocated = torch.cuda.memory_allocated() / 1024**3
+            logger.info(f"GPU memory allocated: {memory_allocated:.2f} GB")
+    
+    async def predict(
+        self,
+        prompt: str,
+        max_new_tokens: int = 512,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        do_sample: bool = True,
+        use_cache: bool = True
+    ) -> str:
+        """
+        Generate text with optimized inference.
+        
+        Args:
+            prompt: Input text prompt
+            max_new_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            top_p: Top-p sampling parameter
+            do_sample: Whether to use sampling
+            use_cache: Whether to use KV cache
+            
+        Returns:
+            Generated text
+        """
+        if self.model is None or self.tokenizer is None:
+            raise RuntimeError("Model not loaded. Call load() first.")
+        
+        start_time = time.time()
+        
+        try:
+            # Tokenize input
+            inputs = self.tokenizer(prompt, return_tensors="pt")
+            input_ids = inputs["input_ids"].to(self.device)
+            attention_mask = inputs["attention_mask"].to(self.device)
+            
+            # Generate with optimized settings
+            with torch.no_grad():
+                if self.is_quantized:
+                    outputs = self._quantized_generate(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=max_new_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        do_sample=do_sample,
+                        use_cache=use_cache
+                    )
+                else:
+                    outputs = self.model.generate(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=max_new_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        do_sample=do_sample,
+                        use_cache=use_cache,
+                        pad_token_id=self.tokenizer.eos_token_id
+                    )
+            
+            # Decode output
+            generated_text = self.tokenizer.decode(
+                outputs[0][len(input_ids[0]):], 
+                skip_special_tokens=True
+            )
+            
+            # Track performance
+            inference_time = time.time() - start_time
+            tokens_generated = len(outputs[0]) - len(input_ids[0])
+            tokens_per_second = tokens_generated / inference_time if inference_time > 0 else 0
+            
+            self.performance_stats['inference_times'].append(inference_time)
+            self.performance_stats['tokens_per_second'].append(tokens_per_second)
+            
+            logger.info(f"Generated {tokens_generated} tokens in {inference_time:.2f}s ({tokens_per_second:.1f} tokens/s)")
+            
+            return generated_text
+            
+        except Exception as e:
+            logger.error(f"Error during inference: {e}")
+            raise
+    
+    def _quantized_generate(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        max_new_tokens: int,
+        temperature: float,
+        top_p: float,
+        do_sample: bool,
+        use_cache: bool
+    ) -> torch.Tensor:
+        """Optimized generation for quantized models."""
+        
+        # Use model's generate method with quantization optimizations
+        return self.model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            do_sample=do_sample,
+            use_cache=use_cache,
+            pad_token_id=self.tokenizer.eos_token_id,
+            # Additional optimizations for CPU inference
+            num_beams=1,  # Disable beam search for speed
+            early_stopping=False,
+            length_penalty=1.0
+        )
+    
+    def save_quantized_model(self, save_path: str):
+        """Save quantized model to disk."""
+        if not self.is_quantized or self.quantizer is None:
+            raise RuntimeError("Model is not quantized")
+        
+        self.quantizer.save_quantized_model(self.model, save_path)
+        
+        # Also save tokenizer
+        tokenizer_path = os.path.join(os.path.dirname(save_path), "tokenizer")
+        self.tokenizer.save_pretrained(tokenizer_path)
+        
+        logger.info(f"Quantized model and tokenizer saved to {save_path}")
+    
+    def load_quantized_model(self, model_path: str):
+        """Load pre-quantized model from disk."""
+        if self.quantizer is None:
+            raise RuntimeError("Quantizer not initialized")
+        
+        # Load tokenizer
+        tokenizer_path = os.path.join(os.path.dirname(model_path), "tokenizer")
+        if os.path.exists(tokenizer_path):
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        
+        # Load quantized model
+        self.model = self.quantizer.load_quantized_model(self.model, model_path)
+        self.is_quantized = True
+        
+        logger.info(f"Quantized model loaded from {model_path}")
+    
+    def get_performance_stats(self) -> Dict[str, float]:
+        """Get performance statistics."""
+        if not self.performance_stats['inference_times']:
+            return {}
+        
+        return {
+            'avg_inference_time': np.mean(self.performance_stats['inference_times']),
+            'avg_tokens_per_second': np.mean(self.performance_stats['tokens_per_second']),
+            'total_inferences': len(self.performance_stats['inference_times']),
+            'min_tokens_per_second': np.min(self.performance_stats['tokens_per_second']),
+            'max_tokens_per_second': np.max(self.performance_stats['tokens_per_second'])
+        }
+    
+    def reset_performance_stats(self):
+        """Reset performance tracking."""
+        self.performance_stats = {
+            'inference_times': [],
+            'memory_usage': [],
+            'tokens_per_second': []
+        }
     
     def _load_tokenizer(self):
         """Load tokenizer with proper configuration."""
@@ -163,7 +405,7 @@ class Llama33Model(BaseModel):
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         
-        return tokenizer
+        self.tokenizer = tokenizer
     
     def _load_model_optimized(self):
         """Load model with hardware optimizations."""
@@ -434,98 +676,6 @@ class Llama33Model(BaseModel):
                 
             except Exception as e:
                 logger.error(f"Failed to apply optimization hooks: {e}")
-    
-    async def predict(self, input_data: Any, **kwargs) -> Any:
-        """Make prediction with Llama 3.3 model."""
-        if not self.is_loaded or self.model is None or self.tokenizer is None:
-            raise RuntimeError("Model not loaded")
-        
-        try:
-            # Handle different input types
-            if isinstance(input_data, str):
-                # Simple text input
-                prompt = input_data
-            elif isinstance(input_data, list):
-                # Chat messages format
-                prompt = self._format_chat_messages(input_data)
-            elif isinstance(input_data, dict):
-                # Single message
-                if "messages" in input_data:
-                    prompt = self._format_chat_messages(input_data["messages"])
-                else:
-                    prompt = input_data.get("content", str(input_data))
-            else:
-                prompt = str(input_data)
-            
-            # Get generation parameters
-            max_new_tokens = kwargs.get("max_new_tokens", self.generation_config.max_new_tokens)
-            temperature = kwargs.get("temperature", self.generation_config.temperature)
-            top_p = kwargs.get("top_p", self.generation_config.top_p)
-            top_k = kwargs.get("top_k", self.generation_config.top_k)
-            repetition_penalty = kwargs.get("repetition_penalty", self.generation_config.repetition_penalty)
-            
-            # Tokenize input
-            loop = asyncio.get_event_loop()
-            inputs = await loop.run_in_executor(
-                None,
-                lambda: self.tokenizer(
-                    prompt,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=min(len(prompt.split()) + max_new_tokens, 
-                                 self.config.max_position_embeddings)
-                )
-            )
-            
-            # Move to appropriate device
-            if hasattr(self.model, 'device'):
-                inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-            elif torch.cuda.is_available():
-                inputs = {k: v.cuda() for k, v in inputs.items()}
-            
-            # Generate response with assembly optimizations
-            start_time = time.time()
-            
-            # Apply assembly optimization hooks if available
-            if self.matrix_ops.use_optimizations:
-                self._apply_optimization_hooks()
-            
-            with torch.no_grad():
-                outputs = await loop.run_in_executor(
-                    None,
-                    lambda: self.model.generate(
-                        **inputs,
-                        max_new_tokens=max_new_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        top_k=top_k,
-                        repetition_penalty=repetition_penalty,
-                        do_sample=temperature > 0,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                        eos_token_id=self.generation_config.eos_token_id,
-                        use_cache=True
-                    )
-                )
-            
-            generation_time = time.time() - start_time
-            
-            # Decode response
-            response_ids = outputs[0][inputs["input_ids"].shape[-1]:]
-            response = self.tokenizer.decode(response_ids, skip_special_tokens=True)
-            
-            # Clean up response
-            response = response.strip()
-            
-            # Log generation stats
-            num_tokens = len(response_ids)
-            tokens_per_second = num_tokens / generation_time if generation_time > 0 else 0
-            logger.info(f"Generated {num_tokens} tokens in {generation_time:.2f}s ({tokens_per_second:.1f} tokens/s)")
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Prediction failed: {str(e)}")
-            raise
     
     async def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """Chat interface for conversational use."""
