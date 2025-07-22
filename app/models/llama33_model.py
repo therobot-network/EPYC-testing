@@ -98,11 +98,17 @@ class Llama33Model(BaseModel):
             
             # Load model configuration
             logger.info("Loading model configuration...")
-            self.config = await loop.run_in_executor(
-                None,
-                AutoConfig.from_pretrained,
-                self.model_path
-            )
+            # Load config with proper path handling
+            if Path(self.model_path).exists():
+                self.config = await loop.run_in_executor(
+                    None,
+                    lambda: AutoConfig.from_pretrained(self.model_path, local_files_only=True)
+                )
+            else:
+                self.config = await loop.run_in_executor(
+                    None,
+                    lambda: AutoConfig.from_pretrained(self.model_path)
+                )
             
             # Setup generation configuration
             self._setup_generation_config()
@@ -129,11 +135,21 @@ class Llama33Model(BaseModel):
     
     def _load_tokenizer(self):
         """Load tokenizer with proper configuration."""
-        tokenizer = AutoTokenizer.from_pretrained(
-            self.model_path,
-            use_fast=True,
-            trust_remote_code=False
-        )
+        # Check if path exists locally
+        if Path(self.model_path).exists():
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.model_path,
+                use_fast=True,
+                trust_remote_code=False,
+                local_files_only=True
+            )
+        else:
+            # Fallback to HuggingFace repo
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.model_path,
+                use_fast=True,
+                trust_remote_code=False
+            )
         
         # Ensure proper special tokens
         if tokenizer.pad_token is None:
@@ -175,18 +191,32 @@ class Llama33Model(BaseModel):
             )
             logger.info("Using 4-bit quantization")
         
-        # Load model
-        model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            config=self.config,
-            torch_dtype=torch_dtype,
-            device_map=device_map,
-            quantization_config=quantization_config,
-            attn_implementation=attn_implementation,
-            trust_remote_code=False,
-            low_cpu_mem_usage=True,
-            use_cache=True
-        )
+        # Load model with proper path handling
+        if Path(self.model_path).exists():
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                config=self.config,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                quantization_config=quantization_config,
+                attn_implementation=attn_implementation,
+                trust_remote_code=False,
+                low_cpu_mem_usage=True,
+                use_cache=True,
+                local_files_only=True
+            )
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                config=self.config,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                quantization_config=quantization_config,
+                attn_implementation=attn_implementation,
+                trust_remote_code=False,
+                low_cpu_mem_usage=True,
+                use_cache=True
+            )
         
         return model
     
