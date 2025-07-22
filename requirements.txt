@@ -39,8 +39,7 @@ rich>=13.7.0
 textual>=0.45.0
 click>=8.1.0
 
-# Assembly optimization dependencies
-ctypes-sh>=0.1.0
+# Assembly optimization dependencies (ctypes is built-in)
 
 # Testing
 pytest>=7.4.0
