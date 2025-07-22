@@ -385,7 +385,7 @@ class Llama33Model(BaseModel):
             'tokens_per_second': []
         }
     
-    def _load_tokenizer(self):
+    async def _load_tokenizer(self):
         """Load tokenizer with proper configuration."""
         # Check if path exists locally
         if Path(self.model_path).exists():
