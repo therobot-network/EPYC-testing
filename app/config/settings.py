@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     
     def __init__(self, **kwargs):
         # Load EC2 config first
-        self._ec2_config = load_ec2_config()
         super().__init__(**kwargs)
+        self._ec2_config = load_ec2_config()
     
     # Server configuration - use EC2 config if available
     @property
