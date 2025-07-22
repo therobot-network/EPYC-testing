@@ -114,15 +114,34 @@ install_dependencies() {
     print_status "Installing Transformers and related packages..."
     pip install transformers>=4.45.0
     pip install accelerate>=0.21.0
-    pip install bitsandbytes>=0.41.0
     pip install sentencepiece>=0.1.99
     pip install protobuf>=3.20.0
     pip install huggingface_hub>=0.17.0
     
+    # Install bitsandbytes separately as it can be tricky
+    if pip install bitsandbytes>=0.41.0; then
+        print_success "BitsAndBytes installed successfully"
+    else
+        print_warning "BitsAndBytes installation failed - quantization features may not work"
+    fi
+    
     # Install optional optimizations
+    print_status "Installing build dependencies..."
+    pip install wheel setuptools
+    
     print_status "Installing optimization libraries..."
-    pip install flash-attn --no-build-isolation
-    pip install xformers
+    # Try to install flash-attn, but don't fail if it doesn't work
+    if pip install flash-attn --no-build-isolation; then
+        print_success "Flash Attention installed successfully"
+    else
+        print_warning "Flash Attention installation failed - model will use standard attention (slower but still functional)"
+    fi
+    # Try to install xformers, but don't fail if it doesn't work
+    if pip install xformers; then
+        print_success "xformers installed successfully"
+    else
+        print_warning "xformers installation failed - will use standard transformers attention"
+    fi
     
     print_success "Dependencies installed successfully"
 }
