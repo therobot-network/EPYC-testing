@@ -18,8 +18,13 @@ class OptimizedMatrixOps:
         self.simd_kernels = get_simd_kernels()
         self.use_optimizations = self.simd_kernels.avx2_supported
         
+        # Thresholds for when to use our optimizations vs falling back to optimized libraries
+        self.small_matrix_threshold = 256  # Use SIMD for matrices smaller than this
+        self.vector_threshold = 10000      # Use SIMD for vectors smaller than this
+        
         if self.use_optimizations:
             logger.info("Initialized optimized matrix operations with AVX2 support")
+            logger.info(f"Using SIMD for matrices < {self.small_matrix_threshold}x{self.small_matrix_threshold}")
         else:
             logger.warning("Using fallback matrix operations (no AVX2 support)")
     
@@ -37,35 +42,52 @@ class OptimizedMatrixOps:
         Returns:
             Output tensor of shape (..., out_features)
         """
-        if not self.use_optimizations:
+        # Check if we should use optimizations based on matrix size
+        out_features, in_features = weight.shape
+        use_simd = (self.use_optimizations and 
+                   out_features <= self.small_matrix_threshold and 
+                   in_features <= self.small_matrix_threshold)
+        
+        if not use_simd:
             return torch.nn.functional.linear(input_tensor, weight, bias)
         
         # Get original shape and flatten input for matrix multiplication
         original_shape = input_tensor.shape
         input_2d = input_tensor.view(-1, input_tensor.shape[-1])
         
-        # Convert to numpy for SIMD operations
-        input_np = input_2d.detach().cpu().numpy().astype(np.float32)
-        weight_np = weight.detach().cpu().numpy().astype(np.float32)
-        
-        # Perform optimized matrix multiplication: input @ weight.T
-        # Note: weight is (out_features, in_features), so we need weight.T for correct multiplication
-        weight_t = weight_np.T  # Shape: (in_features, out_features)
-        result_np = self.simd_kernels.matrix_multiply(input_np, weight_t)
-        
-        # Convert back to tensor
-        result_tensor = torch.from_numpy(result_np)
-        
-        # Add bias if provided
-        if bias is not None:
-            result_tensor = result_tensor + bias.cpu()
-        
-        # Restore original shape (except last dimension)
-        output_shape = original_shape[:-1] + (weight.shape[0],)
-        result_tensor = result_tensor.view(output_shape)
-        
-        # Move to same device as input
-        return result_tensor.to(input_tensor.device)
+        # For very small matrices, our SIMD kernels might be competitive
+        batch_size = input_2d.shape[0]
+        if batch_size * out_features * in_features < 1000000:  # Small operation
+            # Convert to numpy for SIMD operations
+            input_np = input_2d.detach().cpu().numpy().astype(np.float32)
+            weight_np = weight.detach().cpu().numpy().astype(np.float32)
+            
+            # Perform optimized matrix multiplication: input @ weight.T
+            # Note: weight is (out_features, in_features), so we need weight.T for correct multiplication
+            weight_t = weight_np.T
+            
+            # Use specialized small matrix kernel for very small matrices
+            if (out_features <= 128 and in_features <= 512 and batch_size <= 32):
+                result_np = self.simd_kernels.small_matrix_multiply(input_np, weight_t)
+            else:
+                result_np = self.simd_kernels.matrix_multiply(input_np, weight_t)
+            
+            # Convert back to tensor
+            result_tensor = torch.from_numpy(result_np)
+            
+            # Add bias if provided
+            if bias is not None:
+                result_tensor = result_tensor + bias.cpu()
+            
+            # Restore original shape (except last dimension)
+            output_shape = original_shape[:-1] + (weight.shape[0],)
+            result_tensor = result_tensor.view(output_shape)
+            
+            # Move to same device as input
+            return result_tensor.to(input_tensor.device)
+        else:
+            # Fall back to PyTorch for larger operations
+            return torch.nn.functional.linear(input_tensor, weight, bias)
     
     def attention_scores(self, query: torch.Tensor, key: torch.Tensor) -> torch.Tensor:
         """

@@ -19,6 +19,7 @@ from transformers import (
 )
 
 from app.models.base import BaseModel
+from app.optimizations.matrix_ops import get_matrix_ops
 
 
 class Llama33Model(BaseModel):
@@ -31,6 +32,13 @@ class Llama33Model(BaseModel):
         self.generation_config = None
         self.llama33_config = None
         self.chat_template = None
+        
+        # Initialize assembly optimizations
+        self.matrix_ops = get_matrix_ops()
+        if self.matrix_ops.use_optimizations:
+            logger.info("🚀 Assembly optimizations enabled for LLaMA model")
+        else:
+            logger.warning("⚠️ Assembly optimizations not available, using fallback")
         
         # Load Llama 3.3 specific configuration
         self._load_llama33_config()
@@ -398,6 +406,35 @@ class Llama33Model(BaseModel):
         
         return "".join(formatted_parts)
     
+    def _apply_optimization_hooks(self):
+        """Apply assembly optimization hooks to model layers."""
+        if not hasattr(self, '_hooks_applied'):
+            try:
+                # Hook into linear layers for matrix multiplication optimization
+                for name, module in self.model.named_modules():
+                    if isinstance(module, torch.nn.Linear):
+                        # Replace forward method with optimized version
+                        original_forward = module.forward
+                        
+                        def optimized_forward(x, original_fn=original_forward, layer_name=name):
+                            # Use our assembly-optimized matrix operations
+                            if self.matrix_ops.use_optimizations and x.dim() == 2:
+                                try:
+                                    return self.matrix_ops.linear_forward(x, module.weight, module.bias)
+                                except Exception as e:
+                                    logger.warning(f"Assembly optimization failed for {layer_name}, falling back: {e}")
+                                    return original_fn(x)
+                            else:
+                                return original_fn(x)
+                        
+                        module.forward = optimized_forward
+                
+                self._hooks_applied = True
+                logger.info("🔧 Applied assembly optimization hooks to model layers")
+                
+            except Exception as e:
+                logger.error(f"Failed to apply optimization hooks: {e}")
+    
     async def predict(self, input_data: Any, **kwargs) -> Any:
         """Make prediction with Llama 3.3 model."""
         if not self.is_loaded or self.model is None or self.tokenizer is None:
@@ -446,8 +483,12 @@ class Llama33Model(BaseModel):
             elif torch.cuda.is_available():
                 inputs = {k: v.cuda() for k, v in inputs.items()}
             
-            # Generate response
+            # Generate response with assembly optimizations
             start_time = time.time()
+            
+            # Apply assembly optimization hooks if available
+            if self.matrix_ops.use_optimizations:
+                self._apply_optimization_hooks()
             
             with torch.no_grad():
                 outputs = await loop.run_in_executor(
