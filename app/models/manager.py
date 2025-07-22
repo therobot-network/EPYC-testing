@@ -4,10 +4,10 @@ Model manager for loading, managing, and serving ML models.
 
 import asyncio
 import time
+import torch
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-import torch
 from loguru import logger
 
 from app.config.settings import get_settings
@@ -24,6 +24,23 @@ class ModelManager:
         self.model_info: Dict[str, Dict[str, Any]] = {}
         self.settings = get_settings()
         self._lock = asyncio.Lock()
+        
+        # Apply EC2 performance optimizations
+        self._apply_performance_optimizations()
+    
+    def _apply_performance_optimizations(self):
+        """Apply EC2-specific performance optimizations."""
+        # Set PyTorch thread count based on EC2 configuration
+        if self.settings.torch_threads:
+            torch.set_num_threads(self.settings.torch_threads)
+            logger.info(f"Set PyTorch threads to {self.settings.torch_threads}")
+        
+        # Log performance configuration
+        if self.settings.ec2_instance_type:
+            logger.info(f"Running on EC2 instance type: {self.settings.ec2_instance_type}")
+            logger.info(f"CPU cores available: {self.settings.cpu_cores}")
+            logger.info(f"Max models in memory: {self.settings.max_models_in_memory}")
+            logger.info(f"Max batch size: {self.settings.max_batch_size}")
     
     async def load_model(
         self, 
@@ -58,7 +75,8 @@ class ModelManager:
                     "loaded_at": datetime.now().isoformat(),
                     "model_path": model_path,
                     "model_type": model_type,
-                    "memory_usage": self._get_model_memory_usage(model)
+                    "memory_usage": self._get_model_memory_usage(model),
+                    "ec2_optimized": True if self.settings.ec2_instance_type else False
                 }
                 
                 logger.info(f"Successfully loaded model '{model_name}'")

@@ -9,7 +9,9 @@ services:
       - DEBUG=false
       - LOG_LEVEL=INFO
       - MODEL_PATH=/app/models
-      - AWS_REGION=us-east-1
+      - AWS_REGION=us-west-1  # Updated to match EC2 region
+      - HOST=0.0.0.0
+      - PORT=8000
     volumes:
       - ./models:/app/models:ro
       - ./logs:/app/logs
@@ -24,9 +26,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 4G  # c6a.large has 4GB RAM
+          cpus: '2.0'  # c6a.large has 2 vCPUs
         reservations:
           memory: 2G
+          cpus: '1.0'
 
   # Optional: Add monitoring services
   # prometheus:

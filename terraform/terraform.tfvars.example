@@ -1,0 +1,41 @@
+# Example Terraform Variables for EPYC-testing
+# Copy this file to terraform.tfvars and update values as needed
+
+# AWS Configuration
+aws_region = "us-west-1"
+environment = "dev"
+
+# EC2 Instance Configuration
+instance_type = "c6a.large"
+availability_zone = "us-west-1c"
+ec2_user = "ec2-user"
+
+# Storage Configuration
+volume_type = "gp3"
+volume_size = 20
+
+# Key Pair Configuration
+key_pair_name = "griffin-connect"
+public_key_path = "~/.ssh/griffin-connect.pub"
+
+# Security Configuration (IMPORTANT: Restrict these CIDRs in production)
+allowed_ssh_cidrs = ["0.0.0.0/0"]  # Replace with your IP: ["YOUR_IP/32"]
+allowed_http_cidrs = ["0.0.0.0/0"]
+
+# Networking Configuration
+use_elastic_ip = false  # Set to true for consistent public IP
+
+# Monitoring Configuration
+enable_detailed_monitoring = true
+log_retention_days = 7
+
+# S3 Configuration (optional)
+s3_bucket_name = ""  # Set if you want S3 integration for model storage
+
+# Application Configuration
+app_port = 8000
+
+# Import Configuration (for existing resources)
+# Use these if you want to import existing resources
+existing_instance_id = "i-07784f133e33f426c"  # Your current instance ID
+existing_security_group_id = ""  # Leave empty to create new security group 
