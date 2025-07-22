@@ -20,44 +20,44 @@ connection:
 application:
   host: "0.0.0.0"  # Bind to all interfaces on EC2
   port: 8000
-  workers: 96  # Adjust based on c6a.24xlarge specs (96 vCPUs)
+  workers: 24  # Reduced from 96 to prevent threading issues
   log_level: "INFO"
   
 # Performance Optimizations for c6a.24xlarge
 performance:
   max_memory_gb: 192  # c6a.24xlarge has 192GB RAM
   cpu_cores: 96       # c6a.24xlarge has 96 vCPUs
-  torch_threads: 96   # Match CPU cores
-  batch_size: 32      # Reduced for FP16 to manage memory efficiently
+  torch_threads: 24   # Reduced to prevent contention (was 96)
+  batch_size: 16      # Reduced for memory efficiency
   
-  # CPU Optimization Settings for Half-Precision
+  # CPU Optimization Settings with Quantization
   cpu_inference: true
-  load_in_8bit: false  # Disabled for FP16 optimization
-  load_in_4bit: false  # Disabled for FP16 optimization - using half precision instead
+  load_in_8bit: true   # ENABLED to reduce memory usage from ~140GB to ~70GB
+  load_in_4bit: false  # Keep disabled for stability
   torch_dtype: "float16"  # Half precision for optimal performance on AMD EPYC
   low_cpu_mem_usage: true
-  use_half_precision: true  # Enable half-precision optimization
+  use_half_precision: false  # Disabled when using quantization
   
   # AMD EPYC specific optimizations
   use_mkl: true  # Enable Intel MKL for optimized BLAS operations
-  mkl_threads: 96  # Match CPU cores for MKL threading
-  omp_num_threads: 96  # OpenMP threading optimization
+  mkl_threads: 24  # Reduced to match torch_threads
+  omp_num_threads: 24  # Reduced OpenMP threading
   
-  # Memory management for FP16
+  # Memory management for quantized model
   gradient_checkpointing: true  # Save memory during inference
   max_memory_per_gpu: null  # CPU-only inference
   device_map: "cpu"  # Force CPU device mapping
   
-  # Generation Settings optimized for CPU FP16
-  max_new_tokens: 512   # Increased from 256 for better responses
+  # Generation Settings optimized for CPU quantized inference
+  max_new_tokens: 512   # Reasonable default
   temperature: 0.7
   top_p: 0.9
   do_sample: true
   
-  # AMD EPYC specific SIMD optimizations
+  # AMD EPYC specific SIMD optimizations (reduced for stability)
   use_avx2: true  # Enable AVX2 SIMD instructions
-  use_avx512: true  # Enable AVX-512 if available on AMD EPYC
-  vectorization: true  # Enable vectorized operations
+  use_avx512: false  # Disabled to prevent thermal issues
+  vectorization: true  # Enable vectorization optimizations
   
 # Storage Paths on EC2
 storage:

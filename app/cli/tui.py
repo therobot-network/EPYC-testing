@@ -484,7 +484,19 @@ class EPYCTestingTUI(App):
         self.sub_title = f"LLaMA 3.3 70B - {self.model_name}"
         
         if self.auto_load:
+            # Use call_after_refresh to ensure UI is ready before starting loading
+            self.call_after_refresh(self._start_loading_task)
+    
+    def _start_loading_task(self) -> None:
+        """Start the model loading task after UI is initialized."""
+        try:
             self.loading_task = self.load_model()
+        except Exception as e:
+            loading_screen = self.query_one("#loading-screen", LoadingScreen)
+            loading_screen.add_log(f"Failed to start loading task: {str(e)}", "error")
+            if self.debug_mode:
+                import traceback
+                loading_screen.add_log(f"Debug traceback: {traceback.format_exc()}", "error")
     
     @work(exclusive=True)
     async def load_model(self) -> None:
@@ -508,19 +520,21 @@ class EPYCTestingTUI(App):
             # Stage 4: Load model weights (this is the heavy operation)
             loading_screen.update_progress(35.0, "Loading Model Weights", "This may take several minutes...")
             loading_screen.add_log("Loading 70B parameters... This will take time.", "warning")
+            loading_screen.add_log("If this takes too long, try using quantization or restart with debug mode", "info")
             
             # Create a task for model loading with timeout
             model_loading_task = asyncio.create_task(
                 self._load_model_with_progress(loading_screen)
             )
             
-            # Wait for model loading with timeout (30 minutes)
+            # Wait for model loading with timeout (45 minutes for large models)
             try:
-                await asyncio.wait_for(model_loading_task, timeout=1800.0)  # 30 minutes
+                await asyncio.wait_for(model_loading_task, timeout=2700.0)  # 45 minutes
             except asyncio.TimeoutError:
-                loading_screen.add_log("Model loading timed out after 30 minutes", "error")
+                loading_screen.add_log("Model loading timed out after 45 minutes", "error")
                 loading_screen.add_log("This may indicate insufficient memory or slow disk I/O", "warning")
                 loading_screen.add_log("Try using quantization to reduce memory usage", "info")
+                loading_screen.add_log("Or restart with debug mode: ./cli.py --debug", "info")
                 return
             except asyncio.CancelledError:
                 loading_screen.add_log("Model loading was cancelled", "warning")
@@ -536,6 +550,10 @@ class EPYCTestingTUI(App):
             
         except Exception as e:
             loading_screen.add_log(f"Error loading model: {str(e)}", "error")
+            loading_screen.add_log("Common solutions:", "info")
+            loading_screen.add_log("1. Restart with quantization: edit configs/ec2.yaml", "info")
+            loading_screen.add_log("2. Check available memory: free -h", "info")
+            loading_screen.add_log("3. Try debug mode: ./cli.py --debug", "info")
             if self.debug_mode:
                 import traceback
                 loading_screen.add_log(f"Debug traceback: {traceback.format_exc()}", "error")
@@ -547,6 +565,16 @@ class EPYCTestingTUI(App):
             if self.loading_cancelled:
                 raise asyncio.CancelledError("Loading cancelled")
             
+            # Check available memory before loading
+            import psutil
+            memory = psutil.virtual_memory()
+            available_gb = memory.available / (1024**3)
+            loading_screen.add_log(f"Available memory: {available_gb:.1f}GB", "info")
+            
+            if available_gb < 140:
+                loading_screen.add_log(f"Warning: Only {available_gb:.1f}GB available, model needs ~140GB", "warning")
+                loading_screen.add_log("Consider using quantization or freeing up memory", "warning")
+            
             # Create progress update callback
             def progress_callback(stage: str, progress: float):
                 # Map internal progress to UI progress (35% to 95%)
@@ -554,13 +582,25 @@ class EPYCTestingTUI(App):
                 loading_screen.update_progress(ui_progress, stage)
                 loading_screen.add_log(f"{stage}: {progress:.1f}%", "info")
             
-            # Actually load the model
+            # Actually load the model with timeout protection
             loading_screen.update_progress(40.0, "Loading Model Weights")
-            await self.model_manager.load_model(
-                model_name=self.model_name,
-                model_path=self.model_path,
-                model_type="llama33"
-            )
+            loading_screen.add_log("Starting model weight loading...", "info")
+            
+            # Wrap the model loading in a timeout
+            try:
+                await asyncio.wait_for(
+                    self.model_manager.load_model(
+                        model_name=self.model_name,
+                        model_path=self.model_path,
+                        model_type="llama33"
+                    ),
+                    timeout=2400.0  # 40 minutes for just the model loading
+                )
+                loading_screen.add_log("Model weights loaded successfully", "success")
+            except asyncio.TimeoutError:
+                loading_screen.add_log("Model weight loading timed out", "error")
+                loading_screen.add_log("The model is too large for available resources", "error")
+                raise RuntimeError("Model loading timeout - insufficient resources")
             
             # Check if cancelled after loading
             if self.loading_cancelled:
@@ -576,9 +616,13 @@ class EPYCTestingTUI(App):
             raise
         except Exception as e:
             loading_screen.add_log(f"Model loading failed: {str(e)}", "error")
-            if "out of memory" in str(e).lower():
+            if "out of memory" in str(e).lower() or "insufficient" in str(e).lower():
                 loading_screen.add_log("Try using quantization to reduce memory usage", "info")
-                loading_screen.add_log("Or use a smaller model variant", "info")
+                loading_screen.add_log("Edit configs/ec2.yaml and set load_in_8bit: true", "info")
+            elif "timeout" in str(e).lower():
+                loading_screen.add_log("Model loading is taking too long", "error")
+                loading_screen.add_log("This usually indicates memory pressure", "info")
+            loading_screen.add_log("Press ESC to cancel and try again with different settings", "info")
             raise
     
     def switch_to_chat(self) -> None:
