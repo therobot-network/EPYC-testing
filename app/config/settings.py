@@ -32,21 +32,21 @@ class Settings(BaseSettings):
     # Server configuration - use EC2 config if available
     @property
     def host(self) -> str:
-        return self._ec2_config.get('application', {}).get('host', self._host)
+        return self._ec2_config.get('application', {}).get('host', self.default_host)
     
     @property 
     def port(self) -> int:
-        return self._ec2_config.get('application', {}).get('port', self._port)
+        return self._ec2_config.get('application', {}).get('port', self.default_port)
     
     @property
     def log_level(self) -> str:
-        return self._ec2_config.get('application', {}).get('log_level', self._log_level)
+        return self._ec2_config.get('application', {}).get('log_level', self.default_log_level)
     
     # Private attributes for default values
-    _host: str = Field(default="0.0.0.0", env="HOST")
-    _port: int = Field(default=8000, env="PORT")
+    default_host: str = Field(default="0.0.0.0", env="HOST")
+    default_port: int = Field(default=8000, env="PORT")
     debug: bool = Field(default=False, env="DEBUG")
-    _log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    default_log_level: str = Field(default="INFO", env="LOG_LEVEL")
     
     # CORS configuration - use EC2 config if available
     @property
@@ -54,9 +54,9 @@ class Settings(BaseSettings):
         ec2_origins = self._ec2_config.get('security', {}).get('cors_origins', [])
         if ec2_origins:
             return ec2_origins
-        return self._allowed_origins
+        return self.default_allowed_origins
     
-    _allowed_origins: List[str] = Field(
+    default_allowed_origins: List[str] = Field(
         default=["*"], 
         env="ALLOWED_ORIGINS"
     )
@@ -64,9 +64,9 @@ class Settings(BaseSettings):
     # Model configuration - use EC2 storage paths if available
     @property
     def model_path(self) -> str:
-        return self._ec2_config.get('storage', {}).get('model_cache', self._model_path)
+        return self._ec2_config.get('storage', {}).get('model_cache', self.default_model_path_base)
     
-    _model_path: str = Field(default="./models", env="MODEL_PATH")
+    default_model_path_base: str = Field(default="./models", env="MODEL_PATH")
     default_model_path: Optional[str] = Field(default=None, env="DEFAULT_MODEL_PATH")
     
     # Performance settings - use EC2 optimizations if available
@@ -77,22 +77,22 @@ class Settings(BaseSettings):
         if max_memory_gb:
             # Conservative estimate: allow 1 model per GB of memory
             return max(1, max_memory_gb - 1)  # Reserve 1GB for system
-        return self._max_models_in_memory
+        return self.default_max_models_in_memory
     
-    _max_models_in_memory: int = Field(default=3, env="MAX_MODELS_IN_MEMORY")
+    default_max_models_in_memory: int = Field(default=3, env="MAX_MODELS_IN_MEMORY")
     
     @property
     def max_batch_size(self) -> int:
-        return self._ec2_config.get('performance', {}).get('batch_size', self._max_batch_size)
+        return self._ec2_config.get('performance', {}).get('batch_size', self.default_max_batch_size)
     
-    _max_batch_size: int = Field(default=32, env="MAX_BATCH_SIZE")
+    default_max_batch_size: int = Field(default=32, env="MAX_BATCH_SIZE")
     
     # AWS configuration - use EC2 region if available
     @property
     def aws_region(self) -> str:
-        return self._ec2_config.get('ec2', {}).get('region', self._aws_region)
+        return self._ec2_config.get('ec2', {}).get('region', self.default_aws_region)
     
-    _aws_region: str = Field(default="us-east-1", env="AWS_REGION")
+    default_aws_region: str = Field(default="us-west-1", env="AWS_REGION")
     aws_access_key_id: Optional[str] = Field(default=None, env="AWS_ACCESS_KEY_ID")
     aws_secret_access_key: Optional[str] = Field(default=None, env="AWS_SECRET_ACCESS_KEY")
     s3_bucket: Optional[str] = Field(default=None, env="S3_BUCKET")
