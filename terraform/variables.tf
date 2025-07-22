@@ -38,7 +38,7 @@ variable "availability_zone" {
 variable "ec2_user" {
   description = "EC2 user for SSH connections"
   type        = string
-  default     = "ec2-user"
+  default     = "ubuntu"
 }
 
 # Storage Configuration

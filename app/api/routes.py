@@ -22,6 +22,16 @@ class PredictionRequest(BaseModel):
     parameters: Optional[Dict[str, Any]] = {}
 
 
+class ChatRequest(BaseModel):
+    """Request model for chat conversations."""
+    messages: List[Dict[str, str]]
+    model_name: Optional[str] = "default"
+    max_new_tokens: Optional[int] = 1024
+    temperature: Optional[float] = 0.7
+    top_p: Optional[float] = 0.9
+    top_k: Optional[int] = 50
+
+
 class PredictionResponse(BaseModel):
     """Response model for predictions."""
     prediction: Any
@@ -150,6 +160,65 @@ async def load_model(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error during model loading"
+        )
+
+
+@router.post("/chat")
+async def chat(
+    request: ChatRequest,
+    model_manager: ModelManager = Depends(get_model_manager)
+):
+    """Chat with a model using conversation format."""
+    try:
+        logger.info(f"Chat request for model: {request.model_name}")
+        
+        if request.model_name not in model_manager.models:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Model '{request.model_name}' not found or not loaded"
+            )
+        
+        model = model_manager.models[request.model_name]
+        
+        # Check if model supports chat interface
+        if hasattr(model, 'chat'):
+            response = await model.chat(
+                messages=request.messages,
+                max_new_tokens=request.max_new_tokens,
+                temperature=request.temperature,
+                top_p=request.top_p,
+                top_k=request.top_k
+            )
+        else:
+            # Fallback to regular prediction
+            response, _ = await model_manager.predict(
+                model_name=request.model_name,
+                input_data=request.messages,
+                parameters={
+                    "max_new_tokens": request.max_new_tokens,
+                    "temperature": request.temperature,
+                    "top_p": request.top_p,
+                    "top_k": request.top_k
+                }
+            )
+        
+        return {
+            "response": response,
+            "model_name": request.model_name,
+            "model_type": model_manager.model_info[request.model_name].get("model_type", "unknown")
+        }
+        
+    except ValueError as e:
+        logger.error(f"Chat error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during chat: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during chat"
         )
 
 

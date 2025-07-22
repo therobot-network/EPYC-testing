@@ -6,6 +6,7 @@ import asyncio
 import time
 import torch
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from loguru import logger
@@ -14,6 +15,7 @@ from app.config.settings import get_settings
 from app.models.base import BaseModel
 from app.models.pytorch_model import PyTorchModel
 from app.models.transformers_model import TransformersModel
+from app.models.llama33_model import Llama33Model
 
 
 class ModelManager:
@@ -152,8 +154,16 @@ class ModelManager:
     
     def _detect_model_type(self, model_path: str) -> str:
         """Detect model type based on path and contents."""
+        # Check for Llama 3.3 specific indicators
+        if "llama-3.3" in model_path.lower() or "llama33" in model_path.lower():
+            return "llama33"
+        elif "llama-3.3-70b" in model_path.lower():
+            return "llama33"
+        # Check for Llama 3.3 config file
+        elif Path(model_path).joinpath("llama33_config.json").exists():
+            return "llama33"
         # Simple heuristics - can be extended
-        if "transformers" in model_path.lower() or any(
+        elif "transformers" in model_path.lower() or any(
             file in model_path for file in ["config.json", "pytorch_model.bin"]
         ):
             return "transformers"
@@ -164,7 +174,9 @@ class ModelManager:
     
     def _create_model(self, model_type: str, model_path: str) -> BaseModel:
         """Create a model instance based on type."""
-        if model_type == "transformers":
+        if model_type == "llama33":
+            return Llama33Model(model_path)
+        elif model_type == "transformers":
             return TransformersModel(model_path)
         elif model_type == "pytorch":
             return PyTorchModel(model_path)

@@ -2,49 +2,49 @@
 
 # EC2 Instance Details
 ec2:
-  instance_id: "i-07784f133e33f426c"
-  public_ip: "52.53.198.86"
-  private_ip: "172.31.5.154"
-  instance_type: "c6a.large"
+  instance_id: "i-00268dae9fd36421f"
+  public_ip: "54.151.76.197"
+  private_ip: "172.31.11.209"
+  instance_type: "c6a.24xlarge"
   region: "us-west-1"
   availability_zone: "us-west-1c"
   
 # Connection Settings
 connection:
-  user: "ec2-user"  # Change to "ubuntu" for Ubuntu instances
+  user: "ubuntu"  # Ubuntu instances use ubuntu user
   pem_key: "griffin-connect.pem"
   ssh_timeout: 10
-  remote_directory: "/home/ec2-user/EPYC-testing"
+  remote_directory: "/home/ubuntu/EPYC-testing"
 
 # Application Settings for EC2
 application:
   host: "0.0.0.0"  # Bind to all interfaces on EC2
   port: 8000
-  workers: 4  # Adjust based on c6a.large specs (2 vCPUs)
+  workers: 96  # Adjust based on c6a.24xlarge specs (96 vCPUs)
   log_level: "INFO"
   
-# Performance Optimizations for c6a.large
+# Performance Optimizations for c6a.24xlarge
 performance:
-  max_memory_gb: 4  # c6a.large has 4GB RAM
-  cpu_cores: 2      # c6a.large has 2 vCPUs
-  torch_threads: 2  # Match CPU cores
-  batch_size: 16    # Adjust based on model size
+  max_memory_gb: 192  # c6a.24xlarge has 192GB RAM
+  cpu_cores: 96       # c6a.24xlarge has 96 vCPUs
+  torch_threads: 96   # Match CPU cores
+  batch_size: 64      # Adjust based on model size and large memory
   
 # Storage Paths on EC2
 storage:
-  model_cache: "/home/ec2-user/EPYC-testing/models"
-  logs: "/home/ec2-user/EPYC-testing/logs"
+  model_cache: "/home/ubuntu/EPYC-testing/models"
+  logs: "/home/ubuntu/EPYC-testing/logs"
   temp: "/tmp/epyc-testing"
   
 # Security Settings
 security:
   allowed_hosts:
-    - "52.53.198.86"
-    - "172.31.5.154"
+    - "54.151.76.197"
+    - "172.31.11.209"
     - "localhost"
     - "127.0.0.1"
   cors_origins:
-    - "http://52.53.198.86:8000"
+    - "http://54.151.76.197:8000"
     - "http://localhost:8000"
     
 # Monitoring

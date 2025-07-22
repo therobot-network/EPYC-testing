@@ -56,7 +56,7 @@ output "key_pair_name" {
 # Connection Information
 output "ssh_connection_command" {
   description = "SSH command to connect to the instance"
-  value       = "ssh -i ../griffin-connect.pem ec2-user@${aws_instance.epyc_testing.public_ip}"
+  value       = "ssh -i ../griffin-connect.pem ubuntu@${aws_instance.epyc_testing.public_ip}"
 }
 
 output "application_url" {
