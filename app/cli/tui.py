@@ -412,14 +412,14 @@ class EPYCTestingTUI(App):
         model_path: str, 
         model_name: str, 
         auto_load: bool = False,
-        debug: bool = False,
+        debug_mode: bool = False,
         **kwargs
     ):
         super().__init__(**kwargs)
         self.model_path = model_path
         self.model_name = model_name
         self.auto_load = auto_load
-        self.debug = debug
+        self.debug_mode = debug_mode
         self.model_manager = ModelManager()
         self.model_loaded = False
         self.current_screen = "loading"
@@ -492,7 +492,7 @@ class EPYCTestingTUI(App):
             
         except Exception as e:
             loading_screen.add_log(f"Error loading model: {str(e)}", "error")
-            if self.debug:
+            if self.debug_mode:
                 loading_screen.add_log(f"Debug info: {repr(e)}", "error")
     
     def switch_to_chat(self) -> None:

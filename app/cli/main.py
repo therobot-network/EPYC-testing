@@ -90,6 +90,8 @@ def main(
             Path("./models/llama-3.3-70b-instruct"),
             Path(settings.model_path) / "llama-3.3-70b-instruct",
             Path("/home/ubuntu/EPYC-testing/models/llama-3.3-70b-instruct"),  # EC2 path
+            Path("/home/ubuntu/EPYC-testing/scripts/models/llama-3.3-70b-instruct"),  # Scripts path
+            Path("./scripts/models/llama-3.3-70b-instruct"),  # Local scripts path
         ]
         
         for path in default_paths:
@@ -112,6 +114,11 @@ def main(
     console.print(f"[green]✓[/green] Model found at: [cyan]{model_path}[/cyan]")
     console.print(f"[green]✓[/green] Model name: [cyan]{model_name}[/cyan]")
     
+    # Auto-enable loading if model is found and auto_load wasn't explicitly set
+    if not auto_load:
+        auto_load = True
+        console.print("[green]✓[/green] Auto-loading enabled")
+    
     if debug:
         console.print(f"[yellow]⚠[/yellow] Debug mode enabled")
     
@@ -123,7 +130,7 @@ def main(
             model_path=str(model_path),
             model_name=model_name,
             auto_load=auto_load,
-            debug=debug
+            debug_mode=debug
         )
         tui.run()
     except KeyboardInterrupt:
