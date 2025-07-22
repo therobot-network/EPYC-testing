@@ -53,19 +53,26 @@ check_requirements() {
     
     # Check GPU availability
     if command -v nvidia-smi &> /dev/null; then
-        gpu_info=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits)
-        print_status "GPU Information:"
-        echo "$gpu_info"
-        
-        # Calculate total VRAM
-        total_vram=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{sum+=$1} END {print sum/1024}')
-        print_status "Total VRAM: ${total_vram}GB"
-        
-        if (( $(echo "$total_vram < 140" | bc -l) )); then
-            print_warning "Recommended VRAM is 140GB+. You have ${total_vram}GB. Model will use CPU offloading."
+        if nvidia-smi &> /dev/null; then
+            gpu_info=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits)
+            print_status "GPU Information:"
+            echo "$gpu_info"
+            
+            # Calculate total VRAM
+            total_vram=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{sum+=$1} END {print sum/1024}')
+            print_status "Total VRAM: ${total_vram}GB"
+            
+            if (( $(echo "$total_vram < 140" | bc -l) )); then
+                print_warning "Recommended VRAM is 140GB+. You have ${total_vram}GB. Model will use CPU offloading."
+            else
+                print_success "Excellent! You have ${total_vram}GB VRAM - perfect for Llama 3.3 70B!"
+            fi
+        else
+            print_warning "nvidia-smi found but no NVIDIA driver loaded. Please install NVIDIA drivers first."
         fi
     else
-        print_warning "NVIDIA GPU not detected. Model will run on CPU (very slow)."
+        print_warning "nvidia-smi not found. If you have NVIDIA GPUs, install nvidia-utils first:"
+        print_warning "  sudo apt install nvidia-utils-535"
     fi
     
     # Check disk space
@@ -80,6 +87,13 @@ check_requirements() {
 # Install Python dependencies
 install_dependencies() {
     print_status "Installing Python dependencies..."
+    
+    # Install python3-venv if not available
+    if ! python3 -m venv --help >/dev/null 2>&1; then
+        print_status "Installing python3-venv package..."
+        sudo apt update
+        sudo apt install -y python3-venv python3-pip
+    fi
     
     # Create virtual environment if it doesn't exist
     if [ ! -d "venv" ]; then
