@@ -8,7 +8,8 @@ from functools import lru_cache
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
-from pydantic import BaseSettings, Field
+from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
 def load_ec2_config() -> Dict[str, Any]:
