@@ -111,5 +111,7 @@ terraform/.terraform.tfstate.lock.info
 # Downloaded model directories (huge files - Llama models)
 models/
 scripts/models/
+**/llama-3.1-8b-instruct/
+**/models/llama-3.1-8b-instruct/
 **/llama-3.3-70b-instruct/
 **/models/llama-3.3-70b-instruct/

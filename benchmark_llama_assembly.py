@@ -17,7 +17,7 @@ from loguru import logger
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 try:
-    from app.models.llama33_model import Llama33Model
+    from app.models.llama31_model import Llama31Model
     from app.optimizations.benchmark import BenchmarkSuite
     from app.optimizations.matrix_ops import get_matrix_ops
 except ImportError as e:
@@ -40,9 +40,9 @@ class LlamaBenchmarkSuite:
         if not self.model_path:
             # Try to find model in common locations
             possible_paths = [
-                "models/llama-3.3-70b-instruct",
-                "/home/ubuntu/models/llama-3.3-70b-instruct",
-                "/opt/models/llama-3.3-70b-instruct"
+                "models/llama-3.1-8b-instruct",
+                "/home/ubuntu/models/llama-3.1-8b-instruct",
+                "/opt/models/llama-3.1-8b-instruct"
             ]
             
             for path in possible_paths:
@@ -56,7 +56,7 @@ class LlamaBenchmarkSuite:
         
         try:
             logger.info(f"🔄 Loading LLaMA model from {self.model_path}")
-            self.model = Llama33Model(self.model_path)
+            self.model = Llama31Model(self.model_path)
             await self.model.load()
             logger.info("✅ Model loaded successfully")
             return True

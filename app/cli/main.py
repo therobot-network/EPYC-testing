@@ -49,7 +49,7 @@ def show_banner():
 @click.option(
     "--model-name",
     "-n",
-    default="llama33",
+    default="llama31",
     help="Name to assign to the loaded model"
 )
 @click.option(
@@ -66,12 +66,12 @@ def show_banner():
 )
 def main(
     model_path: Optional[Path] = None,
-    model_name: str = "llama33",
+    model_name: str = "llama31",
     auto_load: bool = False,
     debug: bool = False
 ):
     """
-    Launch the EPYC-testing TUI for LLaMA 3.3 70B model interaction.
+    Launch the EPYC-testing TUI for LLaMA 3.1 8B model interaction.
     
     This terminal user interface provides:
     - Beautiful loading screens with progress tracking
@@ -87,11 +87,11 @@ def main(
     if not model_path:
         # Try to find model in default locations
         default_paths = [
-            Path("./models/llama-3.3-70b-instruct"),
-            Path(settings.model_path) / "llama-3.3-70b-instruct",
-            Path("/home/ubuntu/EPYC-testing/models/llama-3.3-70b-instruct"),  # EC2 path
-            Path("/home/ubuntu/EPYC-testing/scripts/models/llama-3.3-70b-instruct"),  # Scripts path
-            Path("./scripts/models/llama-3.3-70b-instruct"),  # Local scripts path
+            Path("./models/llama-3.1-8b-instruct"),
+            Path(settings.model_path) / "llama-3.1-8b-instruct",
+            Path("/home/ubuntu/EPYC-testing/models/llama-3.1-8b-instruct"),  # EC2 path
+            Path("/home/ubuntu/EPYC-testing/scripts/models/llama-3.1-8b-instruct"),  # Scripts path
+            Path("./scripts/models/llama-3.1-8b-instruct"),  # Local scripts path
         ]
         
         for path in default_paths:

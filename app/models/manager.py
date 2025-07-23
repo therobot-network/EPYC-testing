@@ -16,6 +16,7 @@ from app.models.base import BaseModel
 from app.models.pytorch_model import PyTorchModel
 from app.models.transformers_model import TransformersModel
 from app.models.llama33_model import Llama33Model
+from app.models.llama31_model import Llama31Model
 
 
 class ModelManager:
@@ -154,8 +155,16 @@ class ModelManager:
     
     def _detect_model_type(self, model_path: str) -> str:
         """Detect model type based on path and contents."""
+        # Check for Llama 3.1 specific indicators (prioritize as default)
+        if "llama-3.1" in model_path.lower() or "llama31" in model_path.lower():
+            return "llama31"
+        elif "llama-3.1-8b" in model_path.lower():
+            return "llama31"
+        # Check for Llama 3.1 config file
+        elif Path(model_path).joinpath("llama31_config.json").exists():
+            return "llama31"
         # Check for Llama 3.3 specific indicators
-        if "llama-3.3" in model_path.lower() or "llama33" in model_path.lower():
+        elif "llama-3.3" in model_path.lower() or "llama33" in model_path.lower():
             return "llama33"
         elif "llama-3.3-70b" in model_path.lower():
             return "llama33"
@@ -170,11 +179,13 @@ class ModelManager:
         elif model_path.endswith((".pt", ".pth")):
             return "pytorch"
         else:
-            return "pytorch"  # Default to PyTorch
+            return "llama31"  # Default to Llama 3.1
     
     def _create_model(self, model_type: str, model_path: str) -> BaseModel:
         """Create a model instance based on type."""
-        if model_type == "llama33":
+        if model_type == "llama31":
+            return Llama31Model(model_path)
+        elif model_type == "llama33":
             return Llama33Model(model_path)
         elif model_type == "transformers":
             return TransformersModel(model_path)

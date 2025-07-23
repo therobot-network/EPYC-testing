@@ -592,7 +592,7 @@ class EPYCTestingTUI(App):
                     self.model_manager.load_model(
                         model_name=self.model_name,
                         model_path=self.model_path,
-                        model_type="llama33"
+                        model_type="llama31"
                     ),
                     timeout=2400.0  # 40 minutes for just the model loading
                 )

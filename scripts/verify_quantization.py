@@ -18,7 +18,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from app.config.settings import get_settings
-from app.models.llama33_model import Llama33Model
+from app.models.llama31_model import Llama31Model
 from loguru import logger
 
 class QuantizationVerifier:
@@ -112,7 +112,7 @@ class QuantizationVerifier:
         
         try:
             # Initialize model
-            self.model = Llama33Model(model_path)
+            self.model = Llama31Model(model_path)
             
             # Load model
             await self.model.load()

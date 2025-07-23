@@ -1,6 +1,6 @@
 # EPYC-testing: Large Language Model Deployment Repository
 
-A scalable architecture for deploying large language models (specifically Llama 3.3 70B) on high-performance AWS EC2 instances with automated deployment and management tools.
+A scalable architecture for deploying large language models (specifically Llama 3.1 8B) on high-performance AWS EC2 instances with automated deployment and management tools.
 
 ## 🚀 Quick Setup
 
@@ -44,8 +44,8 @@ Use these scripts for EC2 management and deployment:
 ./scripts/quick-cost-check.sh
 ./scripts/cost-control.sh
 
-# Llama 3.3 model installation
-./scripts/install_llama33.sh
+# Llama 3.1 model download
+./scripts/download_llama31.py
 
 # Terraform infrastructure management
 ./scripts/terraform-setup.sh
@@ -53,14 +53,14 @@ Use these scripts for EC2 management and deployment:
 
 ## 🦙 TUI (Terminal User Interface)
 
-**NEW**: Beautiful terminal interface for chatting with LLaMA 3.3!
+**NEW**: Beautiful terminal interface for chatting with LLaMA 3.1!
 
 ```bash
 # Launch the TUI with auto-loading
 ./cli.py --auto-load
 
 # Launch with specific model path
-./cli.py -m ./models/llama-3.3-70b-instruct
+./cli.py -m ./models/llama-3.1-8b-instruct
 
 # Debug mode for troubleshooting
 ./cli.py --debug
@@ -143,10 +143,10 @@ See the [TUI Guide](docs/TUI_GUIDE.md) for detailed documentation.
    ./scripts/connect-ec2.sh
    ```
 
-### Model Installation (Llama 3.3 70B)
+### Model Download (Llama 3.1 8B)
 ```bash
-# Install Llama 3.3 70B model
-./scripts/install_llama33.sh
+# Download Llama 3.1 8B model
+python scripts/download_llama31.py --model-size 8b --verify
 ```
 
 ### Cost Management
@@ -216,23 +216,23 @@ The application automatically uses EC2-specific settings when available, falling
 - `POST /api/v1/models/load` - Load a specific model
 - `DELETE /api/v1/models/{model_name}` - Unload a model
 
-### Chat Interface (Llama 3.3)
+### Chat Interface (Llama 3.1)
 - `POST /api/v1/chat` - Conversational interface with message history
 
 ### Example Usage
 ```bash
 # Health check
-curl http://54.151.76.197:8000/api/v1/health
+curl http://52.53.214.150:8000/api/v1/health
 
-# Chat with Llama 3.3
-curl -X POST http://54.151.76.197:8000/api/v1/chat \
+# Chat with Llama 3.1
+curl -X POST http://52.53.214.150:8000/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [
       {"role": "user", "content": "Explain quantum computing"}
     ],
-    "model_name": "llama33",
-    "max_new_tokens": 512,
+    "model_name": "llama31",
+    "max_new_tokens": 2048,
     "temperature": 0.7
   }'
 ```
@@ -246,11 +246,11 @@ curl -X POST http://54.151.76.197:8000/api/v1/chat \
 - `AWS_REGION`: AWS region (auto-configured from EC2 config: us-west-1)
 - `HF_TOKEN`: HuggingFace token for model downloads
 
-## 🦙 Llama 3.3 70B Features
+## 🦙 Llama 3.1 8B Features
 
 ### Model Specifications
-- **Parameters**: 70 billion
-- **Context Length**: 131,072 tokens (128K)
+- **Parameters**: 8 billion
+- **Context Length**: 131,072 tokens (128K) 
 - **Languages**: English, German, French, Italian, Portuguese, Hindi, Spanish, Thai
 - **Architecture**: Transformer with Grouped Query Attention (GQA)
 - **Optimization**: Flash Attention 2, BFloat16 precision

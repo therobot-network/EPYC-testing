@@ -3,7 +3,7 @@
 # EC2 Instance Details
 ec2:
   instance_id: "i-00268dae9fd36421f"
-  public_ip: "54.151.76.197"
+  public_ip: "52.53.214.150"
   private_ip: "172.31.11.209"
   instance_type: "c6a.24xlarge"
   region: "us-west-1"
@@ -30,9 +30,9 @@ performance:
   torch_threads: 24   # Reduced to prevent contention (was 96)
   batch_size: 16      # Reduced for memory efficiency
   
-  # CPU Optimization Settings with Quantization
+  # CPU Optimization Settings with Quantization (optimized for Llama 3.1 8B)
   cpu_inference: true
-  load_in_8bit: true   # ENABLED to reduce memory usage from ~140GB to ~70GB
+  load_in_8bit: true   # ENABLED to reduce memory usage from ~16GB to ~8GB for 8B model
   load_in_4bit: false  # Keep disabled for stability
   torch_dtype: "float16"  # Half precision for optimal performance on AMD EPYC
   low_cpu_mem_usage: true
@@ -48,8 +48,8 @@ performance:
   max_memory_per_gpu: null  # CPU-only inference
   device_map: "cpu"  # Force CPU device mapping
   
-  # Generation Settings optimized for CPU quantized inference
-  max_new_tokens: 512   # Reasonable default
+  # Generation Settings optimized for CPU quantized inference (Llama 3.1 8B)
+  max_new_tokens: 2048  # Increased for 8B model - more efficient than 70B
   temperature: 0.7
   top_p: 0.9
   do_sample: true
@@ -68,12 +68,12 @@ storage:
 # Security Settings
 security:
   allowed_hosts:
-    - "54.151.76.197"
+    - "52.53.214.150"
     - "172.31.11.209"
     - "localhost"
     - "127.0.0.1"
   cors_origins:
-    - "http://54.151.76.197:8000"
+    - "http://52.53.214.150:8000"
     - "http://localhost:8000"
     
 # Monitoring
