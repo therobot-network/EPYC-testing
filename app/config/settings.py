@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     # Security
     api_key: Optional[str] = Field(default=None, env="API_KEY")
     
+    # HuggingFace configuration
+    hf_token: Optional[str] = Field(default=None, env="HF_TOKEN")
+    
     # EC2-specific properties
     @property
     def ec2_instance_id(self) -> Optional[str]:
@@ -131,6 +134,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Allow extra fields to be ignored instead of raising error
 
 
 @lru_cache()

@@ -17,6 +17,7 @@ from app.models.pytorch_model import PyTorchModel
 from app.models.transformers_model import TransformersModel
 from app.models.llama33_model import Llama33Model
 from app.models.llama31_model import Llama31Model
+from app.models.llama2_13b_model import Llama2_13BModel
 
 
 class ModelManager:
@@ -155,7 +156,15 @@ class ModelManager:
     
     def _detect_model_type(self, model_path: str) -> str:
         """Detect model type based on path and contents."""
-        # Check for Llama 3.1 specific indicators (prioritize as default)
+        # Check for HuggingFace model identifiers first
+        if "meta-llama/Llama-3.1" in model_path:
+            return "llama31"
+        elif "meta-llama/Llama-3.3" in model_path:
+            return "llama33"
+        elif "meta-llama/Llama-2" in model_path:
+            return "llama2"
+        
+        # Check for local path indicators
         if "llama-3.1" in model_path.lower() or "llama31" in model_path.lower():
             return "llama31"
         elif "llama-3.1-8b" in model_path.lower():
@@ -171,6 +180,14 @@ class ModelManager:
         # Check for Llama 3.3 config file
         elif Path(model_path).joinpath("llama33_config.json").exists():
             return "llama33"
+        # Check for Llama 2 specific indicators
+        elif "llama-2" in model_path.lower() or "llama2" in model_path.lower():
+            return "llama2"
+        elif "llama-2-13b" in model_path.lower():
+            return "llama2"
+        # Check for Llama 2 config file
+        elif Path(model_path).joinpath("llama2_config.json").exists():
+            return "llama2"
         # Simple heuristics - can be extended
         elif "transformers" in model_path.lower() or any(
             file in model_path for file in ["config.json", "pytorch_model.bin"]
@@ -187,6 +204,8 @@ class ModelManager:
             return Llama31Model(model_path)
         elif model_type == "llama33":
             return Llama33Model(model_path)
+        elif model_type == "llama2":
+            return Llama2_13BModel(model_path)
         elif model_type == "transformers":
             return TransformersModel(model_path)
         elif model_type == "pytorch":

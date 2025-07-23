@@ -169,19 +169,29 @@ async def chat(
     model_manager: ModelManager = Depends(get_model_manager)
 ):
     """Chat with a model using conversation format."""
+    import time
+    start_time = time.time()
+    
     try:
-        logger.info(f"Chat request for model: {request.model_name}")
+        logger.info(f"🎯 Chat API request received for model: {request.model_name}")
+        logger.info(f"📊 Request parameters: max_tokens={request.max_new_tokens}, temp={request.temperature}, top_p={request.top_p}, top_k={request.top_k}")
+        logger.info(f"💬 Messages count: {len(request.messages)}")
         
         if request.model_name not in model_manager.models:
+            logger.error(f"❌ Model '{request.model_name}' not found in loaded models")
+            logger.info(f"📋 Available models: {list(model_manager.models.keys())}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Model '{request.model_name}' not found or not loaded"
             )
         
         model = model_manager.models[request.model_name]
+        model_type = model_manager.model_info[request.model_name].get("model_type", "unknown")
+        logger.info(f"✅ Using model: {request.model_name} (type: {model_type})")
         
         # Check if model supports chat interface
         if hasattr(model, 'chat'):
+            logger.info("🔄 Using native chat interface")
             response = await model.chat(
                 messages=request.messages,
                 max_new_tokens=request.max_new_tokens,
@@ -190,7 +200,7 @@ async def chat(
                 top_k=request.top_k
             )
         else:
-            # Fallback to regular prediction
+            logger.info("🔄 Using fallback prediction interface")
             response, _ = await model_manager.predict(
                 model_name=request.model_name,
                 input_data=request.messages,
@@ -202,20 +212,36 @@ async def chat(
                 }
             )
         
+        # Calculate total API response time
+        total_time = time.time() - start_time
+        logger.info(f"✅ Chat API completed successfully in {total_time:.2f}s")
+        logger.info(f"📤 Response length: {len(response)} characters")
+        
         return {
             "response": response,
             "model_name": request.model_name,
-            "model_type": model_manager.model_info[request.model_name].get("model_type", "unknown")
+            "model_type": model_type
         }
         
     except ValueError as e:
-        logger.error(f"Chat error: {str(e)}")
+        error_time = time.time() - start_time
+        logger.error(f"❌ Chat API validation error after {error_time:.2f}s: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        logger.error(f"Unexpected error during chat: {str(e)}")
+        error_time = time.time() - start_time
+        logger.error(f"❌ Unexpected Chat API error after {error_time:.2f}s: {str(e)}")
+        logger.error(f"🔍 Error type: {type(e).__name__}")
+        
+        # Log traceback for debugging
+        import traceback
+        logger.error(f"📋 Full traceback: {traceback.format_exc()}")
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error during chat"

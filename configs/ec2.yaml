@@ -20,45 +20,66 @@ connection:
 application:
   host: "0.0.0.0"  # Bind to all interfaces on EC2
   port: 8000
-  workers: 24  # Reduced from 96 to prevent threading issues
+  workers: 48  # Increased for better AMD EPYC utilization
   log_level: "INFO"
   
-# Performance Optimizations for c6a.24xlarge
+# Performance Optimizations for c6a.24xlarge with AMD EPYC 7R13
 performance:
   max_memory_gb: 192  # c6a.24xlarge has 192GB RAM
   cpu_cores: 96       # c6a.24xlarge has 96 vCPUs
-  torch_threads: 24   # Reduced to prevent contention (was 96)
-  batch_size: 16      # Reduced for memory efficiency
+  torch_threads: 48   # Optimized for AMD EPYC (half of cores for hyperthreading)
+  batch_size: 8       # Reduced for memory efficiency with 13B model
   
-  # CPU Optimization Settings with Quantization (optimized for Llama 3.1 8B)
+  # CPU Optimization Settings for Llama 2 13B on AMD EPYC
   cpu_inference: true
-  load_in_8bit: true   # ENABLED to reduce memory usage from ~16GB to ~8GB for 8B model
-  load_in_4bit: false  # Keep disabled for stability
-  torch_dtype: "float16"  # Half precision for optimal performance on AMD EPYC
+  load_in_8bit: true   # CRITICAL: Reduces 13B model from ~26GB to ~13GB
+  load_in_4bit: false  # Keep disabled for accuracy
+  torch_dtype: "float16"  # Half precision for AMD EPYC optimization
   low_cpu_mem_usage: true
   use_half_precision: false  # Disabled when using quantization
   
-  # AMD EPYC specific optimizations
+  # AMD EPYC 7R13 specific optimizations
   use_mkl: true  # Enable Intel MKL for optimized BLAS operations
-  mkl_threads: 24  # Reduced to match torch_threads
-  omp_num_threads: 24  # Reduced OpenMP threading
+  mkl_threads: 48  # Match torch_threads
+  omp_num_threads: 48  # OpenMP threading for AMD
   
-  # Memory management for quantized model
+  # AMD EPYC SIMD optimizations
+  use_avx2: true  # Enable AVX2 SIMD instructions
+  use_avx512: false  # AMD EPYC 7R13 doesn't support AVX-512
+  use_fma: true   # Enable FMA instructions for faster math
+  vectorization: true  # Enable vectorization optimizations
+  
+  # Memory management for quantized 13B model
   gradient_checkpointing: true  # Save memory during inference
   max_memory_per_gpu: null  # CPU-only inference
   device_map: "cpu"  # Force CPU device mapping
   
-  # Generation Settings optimized for CPU quantized inference (Llama 3.1 8B)
-  max_new_tokens: 2048  # Increased for 8B model - more efficient than 70B
+  # Model sharding configuration for AMD EPYC
+  model_sharding:
+    enabled: true
+    num_shards: 4  # Distribute across 4 NUMA nodes
+    workers_per_shard: 24  # 96 cores / 4 shards
+    use_pipeline_parallel: true
+    memory_efficient: true
+  
+  # Generation Settings optimized for CPU quantized inference (Llama 2 13B)
+  max_new_tokens: 1024  # Reasonable for 13B model
   temperature: 0.7
   top_p: 0.9
   do_sample: true
   
-  # AMD EPYC specific SIMD optimizations (reduced for stability)
-  use_avx2: true  # Enable AVX2 SIMD instructions
-  use_avx512: false  # Disabled to prevent thermal issues
-  vectorization: true  # Enable vectorization optimizations
+  # KV-Cache optimization
+  kv_cache:
+    enabled: true
+    max_length: 4096  # Llama 2 context length
+    cache_dtype: "float16"  # Match model dtype
   
+  # Chunked prefill for better memory management
+  chunked_prefill:
+    enabled: true
+    chunk_size: 512
+    max_chunks: 8
+
 # Storage Paths on EC2
 storage:
   model_cache: "/home/ubuntu/EPYC-testing/models"

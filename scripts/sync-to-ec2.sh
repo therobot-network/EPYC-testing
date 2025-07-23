@@ -41,7 +41,7 @@ rsync -avz --progress \
     --exclude='venv/' \
     --exclude='*.log' \
     -e "ssh -i $PEM_KEY" \
-    ./app/ ./configs/ ./requirements.txt \
+    ./app/ ./configs/ ./requirements.txt ./chat_cli.py ./chat.py ./CLI_USAGE.md \
     "$EC2_USER@$EC2_IP:$REMOTE_DIR/"
 
 echo -e "${GREEN}✅ Sync complete!${NC}"
