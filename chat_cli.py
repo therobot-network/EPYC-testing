@@ -147,7 +147,8 @@ class ChatCLI:
                         "max_new_tokens": kwargs.get("max_tokens", 1024),
                         "temperature": kwargs.get("temperature", 0.7),
                         "top_p": kwargs.get("top_p", 0.9),
-                        "top_k": kwargs.get("top_k", 50)
+                        "top_k": kwargs.get("top_k", 50),
+                        "stop_tokens": kwargs.get("stop_tokens", None)
                     }
                 )
                 
@@ -248,8 +249,12 @@ class ChatCLI:
 
 [bold]Parameters:[/bold]
   You can adjust generation parameters by typing:
-  [cyan]set temperature 0.8[/cyan]
-  [cyan]set max_tokens 512[/cyan]
+  [cyan]set temperature 0.8[/cyan]      - Creativity (0.1-2.0)
+  [cyan]set max_tokens 512[/cyan]       - Max response length
+  [cyan]set top_p 0.9[/cyan]            - Nucleus sampling
+  [cyan]set top_k 50[/cyan]             - Top-k sampling
+  [cyan]set stop_tokens "Human:,AI:"[/cyan] - Stop generation at these tokens
+  [cyan]set stop_tokens none[/cyan]     - Disable stop tokens
         """
         console.print(Panel(help_text, title="Help", border_style="blue"))
 
@@ -288,7 +293,8 @@ async def main():
         "temperature": 0.7,
         "max_tokens": 1024,
         "top_p": 0.9,
-        "top_k": 50
+        "top_k": 50,
+        "stop_tokens": None
     }
     
     # Main loop
@@ -323,7 +329,7 @@ async def main():
                 await cli.unload_model(model_name)
             elif user_input.lower().startswith("set "):
                 # Handle parameter setting
-                parts = user_input[4:].strip().split()
+                parts = user_input[4:].strip().split(None, 1)  # Split into max 2 parts
                 if len(parts) == 2:
                     param, value = parts
                     try:
@@ -331,11 +337,23 @@ async def main():
                             gen_params[param] = float(value)
                         elif param in ["max_tokens", "top_k"]:
                             gen_params[param] = int(value)
+                        elif param == "stop_tokens":
+                            # Handle stop tokens as comma-separated list
+                            if value.lower() == "none" or value.lower() == "null":
+                                gen_params[param] = None
+                            else:
+                                # Split by comma and strip whitespace
+                                tokens = [token.strip() for token in value.split(",")]
+                                gen_params[param] = tokens
                         console.print(f"[green]✓ Set {param} = {value}[/green]")
                     except ValueError:
                         console.print(f"[red]Invalid value for {param}: {value}[/red]")
                 else:
                     console.print("[red]Usage: set <parameter> <value>[/red]")
+                    console.print("[dim]Examples:[/dim]")
+                    console.print("[dim]  set temperature 0.8[/dim]")
+                    console.print("[dim]  set stop_tokens 'Human:,Assistant:'[/dim]")
+                    console.print("[dim]  set stop_tokens none[/dim]")
             else:
                 # Regular chat message
                 if cli.current_model:

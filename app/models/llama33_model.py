@@ -252,7 +252,9 @@ class Llama33Model(BaseModel):
         temperature: float = 0.7,
         top_p: float = 0.9,
         do_sample: bool = True,
-        use_cache: bool = True
+        use_cache: bool = True,
+        stop_tokens: Optional[List[str]] = None,
+        **kwargs
     ) -> str:
         """
         Generate text with optimized inference.
@@ -318,6 +320,11 @@ class Llama33Model(BaseModel):
             self.performance_stats['tokens_per_second'].append(tokens_per_second)
             
             logger.info(f"Generated {tokens_generated} tokens in {inference_time:.2f}s ({tokens_per_second:.1f} tokens/s)")
+            
+            # Apply stop token filtering if specified
+            if stop_tokens:
+                generated_text = self._apply_stop_tokens(generated_text, stop_tokens)
+                logger.info(f"🛑 Applied stop tokens: {stop_tokens}")
             
             return generated_text
             
@@ -740,6 +747,30 @@ class Llama33Model(BaseModel):
                 
             except Exception as e:
                 logger.error(f"Failed to apply optimization hooks: {e}")
+    
+    def _apply_stop_tokens(self, text: str, stop_tokens: List[str]) -> str:
+        """Apply stop tokens to truncate generated text."""
+        if not stop_tokens or not text:
+            return text
+        
+        # Find the earliest occurrence of any stop token
+        earliest_pos = len(text)
+        found_token = None
+        
+        for stop_token in stop_tokens:
+            if stop_token in text:
+                pos = text.find(stop_token)
+                if pos < earliest_pos:
+                    earliest_pos = pos
+                    found_token = stop_token
+        
+        # Truncate at the earliest stop token
+        if found_token:
+            truncated_text = text[:earliest_pos].strip()
+            logger.info(f"🛑 Text truncated at stop token '{found_token}' (position {earliest_pos})")
+            return truncated_text
+        
+        return text
     
     async def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """Chat interface for conversational use."""

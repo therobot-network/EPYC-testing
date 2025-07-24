@@ -340,7 +340,8 @@ class ChatInterface(Container):
                 parameters={
                     "max_new_tokens": 1024,
                     "temperature": 0.7,
-                    "top_p": 0.9
+                    "top_p": 0.9,
+                    "stop_tokens": None  # Can be configured later
                 }
             )
             

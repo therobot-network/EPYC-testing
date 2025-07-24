@@ -1,10 +1,11 @@
 """
-Model manager for loading, managing, and serving ML models.
+Model manager for loading, managing, and serving ML models with AMD EPYC optimizations.
 """
 
 import asyncio
 import time
 import torch
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -21,7 +22,7 @@ from app.models.llama2_13b_model import Llama2_13BModel
 
 
 class ModelManager:
-    """Manages multiple models and their lifecycle."""
+    """Manages multiple models and their lifecycle with AMD EPYC optimizations."""
     
     def __init__(self):
         self.models: Dict[str, BaseModel] = {}
@@ -29,22 +30,44 @@ class ModelManager:
         self.settings = get_settings()
         self._lock = asyncio.Lock()
         
-        # Apply EC2 performance optimizations
-        self._apply_performance_optimizations()
+        # Apply AMD EPYC performance optimizations
+        self._apply_amd_epyc_optimizations()
     
-    def _apply_performance_optimizations(self):
-        """Apply EC2-specific performance optimizations."""
-        # Set PyTorch thread count based on EC2 configuration
-        if self.settings.torch_threads:
-            torch.set_num_threads(self.settings.torch_threads)
-            logger.info(f"Set PyTorch threads to {self.settings.torch_threads}")
-        
-        # Log performance configuration
-        if self.settings.ec2_instance_type:
-            logger.info(f"Running on EC2 instance type: {self.settings.ec2_instance_type}")
-            logger.info(f"CPU cores available: {self.settings.cpu_cores}")
-            logger.info(f"Max models in memory: {self.settings.max_models_in_memory}")
-            logger.info(f"Max batch size: {self.settings.max_batch_size}")
+    def _apply_amd_epyc_optimizations(self):
+        """Apply AMD EPYC 7R13 specific performance optimizations."""
+        try:
+            # Configure AMD EPYC environment variables first
+            os.environ['OMP_NUM_THREADS'] = str(self.settings.torch_threads or 48)
+            os.environ['MKL_NUM_THREADS'] = str(self.settings.torch_threads or 48)
+            os.environ['OPENBLAS_NUM_THREADS'] = str(self.settings.torch_threads or 48)
+            
+            # AMD EPYC specific optimizations
+            os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
+            os.environ['KMP_BLOCKTIME'] = '1'
+            
+            # Set PyTorch thread count for AMD EPYC (with error handling)
+            if self.settings.torch_threads:
+                try:
+                    torch.set_num_threads(self.settings.torch_threads)
+                    torch.set_num_interop_threads(4)  # NUMA nodes
+                    logger.info(f"🔧 Set PyTorch threads to {self.settings.torch_threads} for AMD EPYC")
+                except RuntimeError as e:
+                    if "cannot set number" in str(e):
+                        logger.warning("⚠️ PyTorch threading already initialized, using environment variables")
+                    else:
+                        raise e
+            
+            # Log performance configuration
+            if self.settings.ec2_instance_type:
+                logger.info(f"🚀 Running on EC2 instance type: {self.settings.ec2_instance_type}")
+                logger.info(f"⚡ CPU cores available: {self.settings.cpu_cores}")
+                logger.info(f"🧠 Max models in memory: {self.settings.max_models_in_memory}")
+                logger.info(f"📦 Max batch size: {self.settings.max_batch_size}")
+                logger.info(f"🔄 AMD EPYC threading: {self.settings.torch_threads} threads")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ AMD EPYC optimization setup warning: {e}")
+            logger.info("🔧 Continuing with default configuration")
     
     async def load_model(
         self, 
@@ -53,7 +76,7 @@ class ModelManager:
         model_type: str = "auto",
         force_reload: bool = False
     ) -> None:
-        """Load a model into memory."""
+        """Load a model into memory with AMD EPYC optimizations."""
         async with self._lock:
             if model_name in self.models and not force_reload:
                 logger.info(f"Model '{model_name}' already loaded")
@@ -64,7 +87,7 @@ class ModelManager:
                 await self._evict_oldest_model()
             
             try:
-                logger.info(f"Loading model '{model_name}' from {model_path}")
+                logger.info(f"🚀 Loading model '{model_name}' from {model_path} with AMD EPYC optimizations")
                 
                 # Determine model type and create appropriate model instance
                 if model_type == "auto":
@@ -80,13 +103,15 @@ class ModelManager:
                     "model_path": model_path,
                     "model_type": model_type,
                     "memory_usage": self._get_model_memory_usage(model),
-                    "ec2_optimized": True if self.settings.ec2_instance_type else False
+                    "amd_epyc_optimized": True,
+                    "torch_threads": self.settings.torch_threads,
+                    "quantized": model_type == "llama2"  # Llama 2 13B uses quantization
                 }
                 
-                logger.info(f"Successfully loaded model '{model_name}'")
+                logger.info(f"✅ Successfully loaded model '{model_name}' with AMD EPYC optimizations")
                 
             except Exception as e:
-                logger.error(f"Failed to load model '{model_name}': {str(e)}")
+                logger.error(f"❌ Failed to load model '{model_name}': {str(e)}")
                 raise ValueError(f"Failed to load model: {str(e)}")
     
     async def unload_model(self, model_name: str) -> None:
@@ -199,19 +224,24 @@ class ModelManager:
             return "llama31"  # Default to Llama 3.1
     
     def _create_model(self, model_type: str, model_path: str) -> BaseModel:
-        """Create a model instance based on type."""
+        """Create a model instance based on type with AMD EPYC optimizations."""
         if model_type == "llama31":
             return Llama31Model(model_path)
         elif model_type == "llama33":
             return Llama33Model(model_path)
         elif model_type == "llama2":
-            return Llama2_13BModel(model_path)
-        elif model_type == "transformers":
-            return TransformersModel(model_path)
+            # Create Llama 2 model without quantization config to avoid conflicts
+            return Llama2_13BModel(
+                model_path=model_path, 
+                device="cpu"
+                # quantization_config is handled internally by the model
+            )
         elif model_type == "pytorch":
             return PyTorchModel(model_path)
+        elif model_type == "transformers":
+            return TransformersModel(model_path)
         else:
-            raise ValueError(f"Unsupported model type: {model_type}")
+            raise ValueError(f"Unknown model type: {model_type}")
     
     def _get_model_memory_usage(self, model: BaseModel) -> Optional[float]:
         """Get approximate memory usage of a model in MB."""

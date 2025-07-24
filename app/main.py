@@ -4,6 +4,28 @@ Main application entry point for the model deployment service.
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    env_path = Path(".env")
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"✅ Loaded environment variables from {env_path}")
+    else:
+        print("⚠️ No .env file found")
+except ImportError:
+    print("⚠️ python-dotenv not installed, loading environment variables manually")
+    # Manual .env loading as fallback
+    env_path = Path(".env")
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                if line.strip() and not line.startswith('#'):
+                    key, value = line.strip().split('=', 1)
+                    os.environ[key] = value
+        print(f"✅ Manually loaded environment variables from {env_path}")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

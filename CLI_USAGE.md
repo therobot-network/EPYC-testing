@@ -52,6 +52,8 @@ set temperature 0.8    # Adjust creativity (0.1-1.0)
 set max_tokens 512     # Limit response length
 set top_p 0.9         # Nucleus sampling
 set top_k 50          # Top-k sampling
+set stop_tokens "Human:,Assistant:"  # Stop at these tokens
+set stop_tokens none   # Disable stop tokens
 ```
 
 ## Examples

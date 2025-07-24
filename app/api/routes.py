@@ -30,6 +30,7 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = 0.7
     top_p: Optional[float] = 0.9
     top_k: Optional[int] = 50
+    stop_tokens: Optional[List[str]] = None
 
 
 class PredictionResponse(BaseModel):
@@ -174,7 +175,7 @@ async def chat(
     
     try:
         logger.info(f"🎯 Chat API request received for model: {request.model_name}")
-        logger.info(f"📊 Request parameters: max_tokens={request.max_new_tokens}, temp={request.temperature}, top_p={request.top_p}, top_k={request.top_k}")
+        logger.info(f"📊 Request parameters: max_tokens={request.max_new_tokens}, temp={request.temperature}, top_p={request.top_p}, top_k={request.top_k}, stop_tokens={request.stop_tokens}")
         logger.info(f"💬 Messages count: {len(request.messages)}")
         
         if request.model_name not in model_manager.models:
@@ -197,7 +198,8 @@ async def chat(
                 max_new_tokens=request.max_new_tokens,
                 temperature=request.temperature,
                 top_p=request.top_p,
-                top_k=request.top_k
+                top_k=request.top_k,
+                stop_tokens=request.stop_tokens
             )
         else:
             logger.info("🔄 Using fallback prediction interface")
@@ -208,7 +210,8 @@ async def chat(
                     "max_new_tokens": request.max_new_tokens,
                     "temperature": request.temperature,
                     "top_p": request.top_p,
-                    "top_k": request.top_k
+                    "top_k": request.top_k,
+                    "stop_tokens": request.stop_tokens
                 }
             )
         
