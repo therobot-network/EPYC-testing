@@ -277,4 +277,64 @@ def get_matrix_ops() -> OptimizedMatrixOps:
     global _matrix_ops_instance
     if _matrix_ops_instance is None:
         _matrix_ops_instance = OptimizedMatrixOps()
-    return _matrix_ops_instance 
+    return _matrix_ops_instance
+
+
+def patch_pytorch_linear_layers():
+    """
+    Patch PyTorch's linear layers to use optimized matrix operations.
+    This monkey-patches torch.nn.functional.linear to use our SIMD optimizations
+    when appropriate (for smaller matrices where our kernels are competitive).
+    """
+    matrix_ops = get_matrix_ops()
+    
+    if not matrix_ops.use_optimizations:
+        logger.warning("SIMD optimizations not available, skipping linear layer patching")
+        return
+    
+    # Store original implementation
+    if not hasattr(torch.nn.functional, '_original_linear'):
+        torch.nn.functional._original_linear = torch.nn.functional.linear
+        
+        def optimized_linear(input_tensor: torch.Tensor, weight: torch.Tensor, 
+                           bias: Optional[torch.Tensor] = None) -> torch.Tensor:
+            """
+            Optimized linear layer implementation that uses SIMD kernels for small matrices.
+            Falls back to original PyTorch implementation for larger matrices.
+            """
+            try:
+                # Check if we should use our optimizations
+                if len(weight.shape) == 2:  # Standard linear layer
+                    out_features, in_features = weight.shape
+                    
+                    # Use our optimizations for small to medium matrices
+                    if (out_features <= matrix_ops.small_matrix_threshold and 
+                        in_features <= matrix_ops.small_matrix_threshold):
+                        return matrix_ops.linear_forward(input_tensor, weight, bias)
+                
+                # Fall back to original implementation for large matrices or edge cases
+                return torch.nn.functional._original_linear(input_tensor, weight, bias)
+                
+            except Exception as e:
+                # If anything goes wrong, fall back to original implementation
+                logger.warning(f"SIMD optimization failed, falling back to PyTorch: {e}")
+                return torch.nn.functional._original_linear(input_tensor, weight, bias)
+        
+        # Replace the function
+        torch.nn.functional.linear = optimized_linear
+        logger.info("✅ PyTorch linear layers patched with SIMD optimizations")
+        
+    else:
+        logger.info("PyTorch linear layers already patched")
+
+
+def unpatch_pytorch_linear_layers():
+    """
+    Restore original PyTorch linear layer implementation.
+    """
+    if hasattr(torch.nn.functional, '_original_linear'):
+        torch.nn.functional.linear = torch.nn.functional._original_linear
+        delattr(torch.nn.functional, '_original_linear')
+        logger.info("PyTorch linear layers restored to original implementation")
+    else:
+        logger.warning("No patched linear layers found to restore") 

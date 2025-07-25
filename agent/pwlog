@@ -1,0 +1,157 @@
+#!/bin/bash
+# ProcessWatcher Command Logger
+# 
+# This script wraps any command and automatically sends its output to ProcessWatcher
+# 
+# Usage: ./pwlog <command>
+# Example: ./pwlog ls -la
+# Example: ./pwlog python3 my_script.py
+
+# Check if ProcessWatcher environment is set up
+if [ -z "$PROCESSWATCHER_API_URL" ]; then
+    echo "Error: PROCESSWATCHER_API_URL not set"
+    echo "Run: export PROCESSWATCHER_API_URL=https://your-processwatcher-url.com"
+    exit 1
+fi
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Default values
+AGENT_ID="${PROCESSWATCHER_AGENT_ID:-terminal-$(hostname)-$$}"
+APP_NAME="${PROCESSWATCHER_APP_NAME:-terminal-session}"
+
+# Command to execute
+COMMAND="$*"
+if [ -z "$COMMAND" ]; then
+    echo "Usage: $0 <command>"
+    echo "Example: $0 ls -la"
+    exit 1
+fi
+
+# Create temporary files for capturing output
+STDOUT_FILE="/tmp/pwlog_stdout_$$"
+STDERR_FILE="/tmp/pwlog_stderr_$$"
+COMBINED_FILE="/tmp/pwlog_combined_$$"
+
+# Cleanup function
+cleanup() {
+    rm -f "$STDOUT_FILE" "$STDERR_FILE" "$COMBINED_FILE"
+}
+trap cleanup EXIT
+
+# Log command start
+python3 -c "
+import sys, os
+sys.path.insert(0, '$SCRIPT_DIR')
+from logger_client import ProcessWatcherLogger
+logger = ProcessWatcherLogger('$PROCESSWATCHER_API_URL', agent_id='$AGENT_ID', app_name='$APP_NAME')
+logger.info('Command started', {
+    'command': '''$COMMAND''',
+    'working_directory': '''$(pwd)''',
+    'user': '''$(whoami)''',
+    'hostname': '''$(hostname)''',
+    'start_time': '''$(date -Iseconds)'''
+})
+logger.shutdown()
+" 2>/dev/null
+
+# Execute command and capture output
+echo "ProcessWatcher: Executing: $COMMAND"
+START_TIME=$(date +%s)
+
+# Run command with output capture
+{
+    # Execute command, capturing both stdout and stderr separately, plus combined
+    {
+        {
+            eval "$COMMAND" 2>&3 | tee "$STDOUT_FILE"
+        } 3>&1 1>&2 | tee "$STDERR_FILE"
+    } > "$COMBINED_FILE" 2>&1
+} 
+EXIT_CODE=$?
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+
+# Read captured output
+STDOUT_CONTENT=""
+STDERR_CONTENT=""
+COMBINED_CONTENT=""
+
+if [ -f "$STDOUT_FILE" ] && [ -s "$STDOUT_FILE" ]; then
+    STDOUT_CONTENT=$(cat "$STDOUT_FILE")
+fi
+
+if [ -f "$STDERR_FILE" ] && [ -s "$STDERR_FILE" ]; then
+    STDERR_CONTENT=$(cat "$STDERR_FILE")
+fi
+
+if [ -f "$COMBINED_FILE" ] && [ -s "$COMBINED_FILE" ]; then
+    COMBINED_CONTENT=$(cat "$COMBINED_FILE")
+fi
+
+# Log command completion with output
+python3 -c "
+import sys, os, json
+sys.path.insert(0, '$SCRIPT_DIR')
+from logger_client import ProcessWatcherLogger
+
+logger = ProcessWatcherLogger('$PROCESSWATCHER_API_URL', agent_id='$AGENT_ID', app_name='$APP_NAME')
+
+# Log completion
+context = {
+    'command': '''$COMMAND''',
+    'exit_code': $EXIT_CODE,
+    'duration_seconds': $DURATION,
+    'end_time': '''$(date -Iseconds)''',
+    'working_directory': '''$(pwd)''',
+    'user': '''$(whoami)''',
+    'hostname': '''$(hostname)'''
+}
+
+# Add output if present
+stdout_content = '''$STDOUT_CONTENT'''
+stderr_content = '''$STDERR_CONTENT'''
+combined_content = '''$COMBINED_CONTENT'''
+
+if stdout_content.strip():
+    context['stdout'] = stdout_content[:2000]  # Limit size
+    if len(stdout_content) > 2000:
+        context['stdout_truncated'] = True
+
+if stderr_content.strip():
+    context['stderr'] = stderr_content[:2000]  # Limit size
+    if len(stderr_content) > 2000:
+        context['stderr_truncated'] = True
+
+# Log based on exit code
+if $EXIT_CODE == 0:
+    logger.info('Command completed successfully', context)
+else:
+    logger.error('Command failed', context)
+
+# If there's significant output, log it separately
+if len(combined_content.strip()) > 100:
+    # Split large output into chunks
+    lines = combined_content.split('\n')
+    chunk_size = 20
+    for i in range(0, len(lines), chunk_size):
+        chunk = lines[i:i+chunk_size]
+        logger.debug('Command output chunk', {
+            'command': '''$COMMAND''',
+            'chunk_number': i // chunk_size + 1,
+            'total_chunks': (len(lines) + chunk_size - 1) // chunk_size,
+            'output_lines': chunk
+        })
+
+logger.shutdown()
+" 2>/dev/null
+
+# Show summary
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "ProcessWatcher: Command completed successfully (${DURATION}s) - logged to ProcessWatcher"
+else
+    echo "ProcessWatcher: Command failed with exit code $EXIT_CODE (${DURATION}s) - logged to ProcessWatcher"
+fi
+
+exit $EXIT_CODE 

@@ -3,7 +3,7 @@
 # EC2 Instance Details
 ec2:
   instance_id: "i-00268dae9fd36421f"
-  public_ip: "54.241.148.138"
+  public_ip: "13.52.235.5"
   private_ip: "172.31.11.209"
   instance_type: "c6a.24xlarge"
   region: "us-west-1"
@@ -89,12 +89,12 @@ storage:
 # Security Settings
 security:
   allowed_hosts:
-    - "54.241.148.138"
+    - "13.52.235.5"
     - "172.31.11.209"
     - "localhost"
     - "127.0.0.1"
   cors_origins:
-    - "http://54.241.148.138:8000"
+    - "http://13.52.235.5:8000"
     - "http://localhost:8000"
     
 # Monitoring
